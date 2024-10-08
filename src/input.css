@@ -19,6 +19,14 @@
     @apply ring ring-cyan-600 bg-slate-700 hover:bg-slate-600;
   }
 
+  .status-select {
+    @apply bg-slate-600 border-cyan-600;
+  }
+
+  .status-normal {
+    @apply bg-zinc-600 border-zinc-600;
+  }
+
   html {
     font-family: "Space Grotesk";
   }

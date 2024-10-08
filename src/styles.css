@@ -629,8 +629,26 @@ video {
   background-color: rgb(71 85 105 / var(--tw-bg-opacity));
 }
 
+.status-select {
+  --tw-border-opacity: 1;
+  border-color: rgb(8 145 178 / var(--tw-border-opacity));
+  --tw-bg-opacity: 1;
+  background-color: rgb(71 85 105 / var(--tw-bg-opacity));
+}
+
+.status-normal {
+  --tw-border-opacity: 1;
+  border-color: rgb(82 82 91 / var(--tw-border-opacity));
+  --tw-bg-opacity: 1;
+  background-color: rgb(82 82 91 / var(--tw-bg-opacity));
+}
+
 html {
   font-family: "Space Grotesk";
+}
+
+.collapse {
+  visibility: collapse;
 }
 
 .mx-10 {
@@ -682,10 +700,6 @@ html {
           user-select: text;
 }
 
-.flex-row {
-  flex-direction: row;
-}
-
 .flex-col {
   flex-direction: column;
 }
@@ -722,12 +736,12 @@ html {
   background-color: rgb(63 63 70 / var(--tw-bg-opacity));
 }
 
-.fill-zinc-300 {
-  fill: #d4d4d8;
-}
-
 .fill-none {
   fill: none;
+}
+
+.fill-zinc-300 {
+  fill: #d4d4d8;
 }
 
 .stroke-zinc-300 {
