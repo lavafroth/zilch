@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  #search:focus+#searchBorder {
+    @apply mx-0 border-zinc-400;
+  }
+
+  .button {
+    @apply px-10 py-6 text-zinc-300 hover:bg-zinc-600 active:bg-zinc-500 transition-all text-left;
+  }
+
+  .action {
+    @apply p-6 text-zinc-300 hover:bg-zinc-600 active:bg-zinc-500 transition-all text-left w-fit;
+  }
+
+  .button-select {
+    @apply ring ring-cyan-600 bg-slate-700 hover:bg-slate-600;
+  }
+
+  html {
+    font-family: "Space Grotesk";
+  }
+}
+
+@layer base {
+  @font-face {
+    font-family: 'Space Grotesk';
+    font-display: swap;
+    src: url(/assets/Space_Grotesk/SpaceGrotesk-VariableFont_wght.ttf);
+  }
+}
