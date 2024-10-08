@@ -11,6 +11,11 @@ var ui_selection_mode = false;
 let scrollableArea;
 let selectButton;
 let search;
+let statusEl;
+
+var bitvec = [];
+
+var n_selected = 0;
 var elems = [];
 
 function generateElements(html) {
@@ -40,7 +45,9 @@ window.addEventListener("keydown", (event) => {
   }
   // TODO: decrese the scope of this conditional
   if (event.key === "Escape") {
-    clear_selection();
+    clear_selection()
+    status_selection_toggle(false)
+    n_selected = 0
     return;
   }
   if ((event.key === "s" || event.key === "/") && search !== document.activeElement) {
@@ -52,16 +59,18 @@ window.addEventListener("keydown", (event) => {
 window.addEventListener("keyup", (event) => {
   if (event.key === "Control") {
     ctrl_is_held = false
-    console.log(selection_mode())
   }
 })
 
 function clear_selection() {
-    elems.map((el) => el.classList.remove('button-select'));
-    ui_selection_mode = false;
+    elems.map((el) => el.classList.remove('button-select'))
+    ui_selection_mode = false
+    n_selected = 0
+
+    for (let step = 0; step < bitvec.length; step++) {
+      bitvec[step] = 0;
+    }
 }
-
-
 
 /**
  * Create a collapsable accordion row for a given package.
@@ -83,21 +92,68 @@ function gen_row(name, packageId, description) {
   return generateElements(templ)[0]
 }
 
+function toggle_row_focus(node, i) {
+    let paragraph = node.children[1]
+    if (!selection_mode()) {
+      status_selection_toggle(false)
+      clear_selection()
+      bitvec[i] ^= true;
+      n_selected += bitvec[i] ? 1: -1
+      node.classList.add('button-select')
+      paragraph.classList.toggle('truncate')
+    } else {
+      bitvec[i] ^= true;
+      n_selected += bitvec[i] ? 1: -1
+      node.classList.toggle('button-select');
+      status_selection_toggle(true);
+    }
+}
+
+function mouse_handler(node, i) {
+  // Don't collapse a row when the user is selecting
+  // something from the description
+  var mouse_clicked = false;
+  var mouse_moved_in_me = false;
+
+  node.addEventListener('mousedown', (event) => {
+    mouse_clicked = true;
+  })
+  node.addEventListener('mousemove', (event) => {
+    if (mouse_clicked) {
+      mouse_moved_in_me = true;
+    }
+  })
+  node.addEventListener('mouseup', (event) => {
+    if (mouse_clicked && !mouse_moved_in_me) {
+      toggle_row_focus(node, i)
+    }
+    mouse_clicked = false;
+    mouse_moved_in_me = false;
+  })
+}
+
+function status_selection_toggle(is_select) {
+  if (is_select) {
+    if (n_selected != 0) {
+      statusEl.innerText = `${n_selected} Selected`
+    } else {
+      statusEl.innerText = "Selection Mode"
+    }
+    statusEl.classList.add('status-select')
+    statusEl.classList.remove('status-normal')
+  } else {
+    statusEl.innerText = "Normal Mode"
+    statusEl.classList.remove('status-select')
+    statusEl.classList.add('status-normal')
+  }
+}
+
 /**
  * Add a row to the document body.
  * @param {Node} node - The row to be added to the document body.
  */
-function add_row(node) {
-  let el_p = node.children[1]
-  node.addEventListener("click", (event) => {
-    if (!selection_mode()) {
-      clear_selection()
-      node.classList.add('button-select')
-      el_p.classList.toggle('truncate')
-    } else {
-      node.classList.toggle('button-select');
-    }
-  })
+function add_row(node, i) {
+  mouse_handler(node, i)
   elems.push(node)
   scrollableArea.appendChild(node);
 }
@@ -105,15 +161,21 @@ function add_row(node) {
 window.addEventListener("DOMContentLoaded", () => {
   scrollableArea = document.querySelector("#scrollableArea");
   search = document.querySelector("#search");
+  statusEl = document.querySelector("#status");
   selectButton = document.querySelector("#select");
 
 
   for (let step = 0; step < 5; step++) {
     let row = gen_row("Foo bar game", "org.foo.bar", "Zombie ipsum actually everyday carry plaid keffiyeh blue bottle wolf quinoa squid four loko glossier kinfolk woke. Plaid cliche cloud bread wolf, etsy humblebrag ennui organic fixie. Tousled sriracha vice VHS. Chillwave vape raw denim aesthetic flannel paleo, austin mixtape lo-fi next level copper mug +1 cred before they sold out. Prism pabst raclette gastropub.");
-    add_row(row)
+    bitvec.push(0);
+    add_row(row, step)
   }
 
   selectButton.addEventListener('click', (event) => {
     ui_selection_mode ^= true;
+    if (!ui_selection_mode) {
+      clear_selection()
+    }
+    status_selection_toggle(ui_selection_mode);
   })
 });
