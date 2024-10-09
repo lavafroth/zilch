@@ -3,6 +3,8 @@
 A vanilla tauri app to rid Android devices of software bloat.  
 Keep none of 'em, none, nada, zilch.
 
+![What the app looks like](assets/preview.png)
+
 ### Features
 
 - Simple yet powerful UI
