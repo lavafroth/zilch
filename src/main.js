@@ -1,9 +1,14 @@
 const { invoke } = window.__TAURI__.core;
+const { listen } = window.__TAURI__.event;
 
-// async function greet() {
-//   // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
-//   greetMsgEl.textContent = await invoke("greet", { name: greetInputEl.value });
-// }
+async function scan() {
+  // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
+  await invoke("scan");
+}
+async function listPackages() {
+  // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
+  await invoke("list_packages");
+}
 
 var ctrl_is_held = false;
 var ui_selection_mode = false;
@@ -12,6 +17,8 @@ let scrollableArea;
 let selectButton;
 let search;
 let statusEl;
+let waitView;
+var packages = [];
 
 var bitvec = [];
 
@@ -148,28 +155,39 @@ function status_selection_toggle(is_select) {
   }
 }
 
-/**
- * Add a row to the document body.
- * @param {Node} node - The row to be added to the document body.
- */
-function add_row(node, i) {
-  mouse_handler(node, i)
-  elems.push(node)
-  scrollableArea.appendChild(node);
-}
+listen('device-ready', (event) => {
+  if (event.payload) {
+    waitView.classList.remove("pageFadeIn");
+    waitView.classList.add("pageFadeOut");
+    listPackages()
+  } else {
+    waitView.classList.remove("pageFadeOut");
+    waitView.classList.add("pageFadeIn");
+  }
+});
+
+
+listen('packages-updated', (event) => {
+  packages = event.payload;
+  var local_elems = [];
+  var local_bitvec = [];
+  for (const [index, packageId] of packages.entries()) {
+    let row = gen_row("No name", packageId, "Zombie ipsum actually everyday carry plaid keffiyeh blue bottle wolf quinoa squid four loko glossier kinfolk woke. Plaid cliche cloud bread wolf, etsy humblebrag ennui organic fixie. Tousled sriracha vice VHS. Chillwave vape raw denim aesthetic flannel paleo, austin mixtape lo-fi next level copper mug +1 cred before they sold out. Prism pabst raclette gastropub.");
+    local_bitvec.push(0);
+    mouse_handler(row, index);
+    local_elems.push(row);
+  }
+  elems = local_elems;
+  bitvec = local_bitvec;
+  scrollableArea.replaceChildren(...elems);
+});
 
 window.addEventListener("DOMContentLoaded", () => {
   scrollableArea = document.querySelector("#scrollableArea");
   search = document.querySelector("#search");
   statusEl = document.querySelector("#status");
   selectButton = document.querySelector("#select");
-
-
-  for (let step = 0; step < 5; step++) {
-    let row = gen_row("Foo bar game", "org.foo.bar", "Zombie ipsum actually everyday carry plaid keffiyeh blue bottle wolf quinoa squid four loko glossier kinfolk woke. Plaid cliche cloud bread wolf, etsy humblebrag ennui organic fixie. Tousled sriracha vice VHS. Chillwave vape raw denim aesthetic flannel paleo, austin mixtape lo-fi next level copper mug +1 cred before they sold out. Prism pabst raclette gastropub.");
-    bitvec.push(0);
-    add_row(row, step)
-  }
+  waitView = document.querySelector("#waitView");
 
   selectButton.addEventListener('click', (event) => {
     ui_selection_mode ^= true;
@@ -178,4 +196,6 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     status_selection_toggle(ui_selection_mode);
   })
+
+  scan();
 });
