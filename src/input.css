@@ -39,3 +39,15 @@
     src: url(/assets/Space_Grotesk/SpaceGrotesk-VariableFont_wght.ttf);
   }
 }
+
+.pageFadeOut {
+  visibility: hidden;
+  opacity: 0;
+  transition: visibility 0s linear 300ms, opacity 300ms;
+}
+
+.pageFadeIn {
+  visibility: visible;
+  opacity: 1;
+  transition: visibility 0s linear 0s, opacity 300ms;
+}
