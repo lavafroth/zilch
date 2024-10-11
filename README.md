@@ -9,16 +9,16 @@ Keep none of 'em, none, nada, zilch.
 
 - Simple yet powerful UI
 - Intuitive keyboard shortcuts
+- Extract app name by parsing apk
 
 ### TODO
 
-- Extract app name by parsing apk
 - Recommendation categories
 - Make uninstall and disable options depend on Android SDK
 
 ### How is this associated with Universal Android Debloater?
 
-It is not although I do plan to use their knowledgebase.
+It is not, although I do plan to use their knowledge-base.
 I have been a contributor to the original repo as well as the now maintained fork.
 
 I started this project because of the following reasons:
