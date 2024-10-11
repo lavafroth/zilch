@@ -1,6 +1,9 @@
 use retry::{delay::Fixed, retry};
 use serde::Serialize;
-use std::sync::{Mutex, OnceLock};
+use std::{
+    collections::BTreeMap,
+    sync::{Mutex, OnceLock},
+};
 use tauri::Emitter;
 mod apk;
 
@@ -32,7 +35,9 @@ async fn list_packages(app: tauri::AppHandle) -> Result<(), String> {
         .expect("could not unwrap handle after initialization; something terrible has happened")
         .lock()
         .expect("could not unwrap handle after initialization; something terrible has happened");
-    let mut pkgs: Vec<_> = dev
+
+    let pkgs: Vec<_> = dev
+        .device
         .shell("pm list packages -f")
         .map_err(|e| e.to_string())?
         .lines()
@@ -51,43 +56,77 @@ async fn list_packages(app: tauri::AppHandle) -> Result<(), String> {
         })
         .collect();
 
-    app.emit("packages-updated", pkgs.clone())
-        .map_err(|_| "failed to send indexing message to the frontend".to_string())?;
-
-    for i in 0..pkgs.len() {
-        {
-            let pkg = pkgs.get_mut(i).unwrap();
-            let pulled = match dev.pull(&pkg.path) {
-                Ok(pulled) => pulled,
-                Err(e) => {
-                    eprintln!("failed to pull apk from device for {}: {e}", pkg.id);
-                    pkg.name.replace("No name".to_string());
-                    app.emit("packages-updated", pkgs.clone()).map_err(|_| {
-                        "failed to send updated package list to the frontend".to_string()
-                    })?;
-                    continue;
-                }
-            };
-            let label = match apk::label(&pulled) {
-                Ok(label) => label,
-                Err(e) => {
-                    eprintln!("failed to get app label for package: {}: {e}", pkg.id);
-                    None
-                }
-            };
-            println!("{} = {:?}", pkg.id, label);
-            pkg.name.replace(label.unwrap_or("No name".to_string()));
+    if dev.pkgs.is_empty() {
+        for pkg in pkgs.iter() {
+            dev.pkgs.insert(pkg.id.clone(), pkg.clone());
         }
+
         app.emit("packages-updated", pkgs.clone())
-            .map_err(|_| "failed to send updated package list to the frontend".to_string())?;
+            .map_err(|_| "failed to send indexing message to the frontend".to_string())?;
+    } else {
+        let mut seen_pkgs = vec![];
+        for pkg in pkgs.iter() {
+            if let Some(seen) = dev.pkgs.get(&pkg.id) {
+                seen_pkgs.push(seen.clone());
+            } else {
+                dev.pkgs.insert(pkg.id.clone(), pkg.clone());
+                seen_pkgs.push(pkg.clone());
+            }
+        }
+        app.emit("packages-updated", seen_pkgs.clone())
+            .map_err(|_| "failed to send indexing message to the frontend".to_string())?;
     }
 
-    app.emit("packages-updated", pkgs)
+    let mut seen_pkgs = vec![];
+    for pkg in pkgs.iter() {
+        {
+            let seen = dev.pkgs.get(&pkg.id).unwrap();
+            if seen.name.is_some() {
+                seen_pkgs.push(pkg.clone());
+                continue;
+            }
+        }
+        let pulled = match dev.device.pull(&pkg.path) {
+            Ok(pulled) => pulled,
+            Err(e) => {
+                let seen = dev.pkgs.get_mut(&pkg.id).unwrap();
+                eprintln!("failed to pull apk from device for {}: {e}", pkg.id);
+                seen.name.replace("No name".to_string());
+                app.emit("packages-updated", pkgs.clone()).map_err(|_| {
+                    "failed to send updated package list to the frontend".to_string()
+                })?;
+                seen_pkgs.push(seen.clone());
+                continue;
+            }
+        };
+        let label = match apk::label(&pulled) {
+            Ok(label) => label,
+            Err(e) => {
+                eprintln!("failed to get app label for package: {}: {e}", pkg.id);
+                None
+            }
+        };
+        let seen = dev.pkgs.get_mut(&pkg.id).unwrap();
+        seen.name.replace(label.unwrap_or("No name".to_string()));
+        seen_pkgs.push(seen.clone());
+        app.emit(
+            "packages-updated",
+            dev.pkgs.values().cloned().collect::<Vec<_>>(),
+        )
+        .map_err(|_| "failed to send updated package list to the frontend".to_string())?;
+    }
+
+    app.emit("packages-updated", seen_pkgs)
         .map_err(|_| "failed to send updated package list to the frontend".to_string())?;
     Ok(())
 }
 
-pub struct DeviceLock(OnceLock<Mutex<ADBUSBDevice>>);
+pub struct Device {
+    device: ADBUSBDevice,
+    pkgs: BTreeMap<String, Package>,
+}
+
+pub struct DeviceLock(OnceLock<Mutex<Device>>);
 
 impl DeviceLock {
     pub fn scan(&self) -> Result<(), String> {
@@ -112,7 +151,10 @@ impl DeviceLock {
                 continue;
             };
             self.0
-                .set(Mutex::new(device))
+                .set(Mutex::new(Device {
+                    device,
+                    pkgs: BTreeMap::default(),
+                }))
                 .map_err(|_| "unable to set global device handle".to_string())?;
             return Ok(());
         }
