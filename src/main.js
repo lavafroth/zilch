@@ -21,10 +21,9 @@ let waitView;
 
 var packages = [];
 
-var bitvec = [];
 var waitViewVisible = true;
 var n_selected = 0;
-var elems = [];
+const elems = new Map();
 
 function generateElements(html) {
   const template = document.createElement('template');
@@ -40,7 +39,6 @@ window.addEventListener("keydown", (event) => {
   // console.log(event)
   if (event.key === "Control") {
     ctrl_is_held = true
-    console.log(selection_mode())
     return;
   }
   if (event.key === "s" && ctrl_is_held) {
@@ -55,7 +53,6 @@ window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     clear_selection()
     status_selection_toggle(false)
-    n_selected = 0
     return;
   }
   if ((event.key === "s" || event.key === "/") && search !== document.activeElement) {
@@ -71,13 +68,12 @@ window.addEventListener("keyup", (event) => {
 })
 
 function clear_selection() {
-    elems.map((el) => el.classList.remove('button-select'))
-    ui_selection_mode = false
-    n_selected = 0
-
-    for (let step = 0; step < bitvec.length; step++) {
-      bitvec[step] = 0;
-    }
+  for (let row of elems.values()) {
+      row.selected = false;
+      row.node?.classList.remove('button-select')
+  }
+  n_selected = 0
+  ui_selection_mode = false
 }
 
 /**
@@ -88,13 +84,13 @@ function clear_selection() {
  */
 function gen_row(name, packageId, description) {
   if (name === null) {
-    name = `<div class="w-32 h-4 rounded bg-zinc-400 animate-pulse"></div>`;
+    name = `<div class="w-32 h-4 rounded bg-zinc-400 animate-pulse inline-block"></div>`;
   } else {
     name = `<span class="select-text">${name}</span>`;
   };
   let templ = `<div id="accordion" class="button">
   
-    <div class="flex items-center gap-4">
+    <div>
       ${name}
       <span class="select-text text-zinc-400">${packageId}</span>
     </div>
@@ -105,24 +101,23 @@ function gen_row(name, packageId, description) {
   return generateElements(templ)[0]
 }
 
-function toggle_row_focus(node, i) {
+function toggle_row_focus(row) {
+    let node = row.node
     let paragraph = node.children[1]
     if (!selection_mode()) {
-      status_selection_toggle(false)
       clear_selection()
-      bitvec[i] ^= true;
-      n_selected += bitvec[i] ? 1: -1
       node.classList.add('button-select')
       paragraph.classList.toggle('truncate')
     } else {
-      bitvec[i] ^= true;
-      n_selected += bitvec[i] ? 1: -1
       node.classList.toggle('button-select');
-      status_selection_toggle(true);
     }
+    row.selected ^= true;
+    n_selected += row.selected ? 1: -1
+    status_selection_toggle(selection_mode())
 }
 
-function mouse_handler(node, i) {
+function mouse_handler(row) {
+  let node = row.node;
   // Don't collapse a row when the user is selecting
   // something from the description
   var mouse_clicked = false;
@@ -132,13 +127,11 @@ function mouse_handler(node, i) {
     mouse_clicked = true;
   })
   node.addEventListener('mousemove', (event) => {
-    if (mouse_clicked) {
-      mouse_moved_in_me = true;
-    }
+    mouse_moved_in_me ||= mouse_clicked
   })
   node.addEventListener('mouseup', (event) => {
     if (mouse_clicked && !mouse_moved_in_me) {
-      toggle_row_focus(node, i)
+      toggle_row_focus(row)
     }
     mouse_clicked = false;
     mouse_moved_in_me = false;
@@ -169,19 +162,36 @@ listen('device-ready', (event) => {
 listen('packages-updated', (event) => {
   packages = event.payload;
   var local_elems = [];
-  var local_bitvec = [];
-  console.log(packages);
-  for (const [index, packageStruct] of packages.entries()) {
-    let packageId = packageStruct.id;
-    let packageName = packageStruct.name;
-    let row = gen_row(packageName, packageId, "Zombie ipsum actually everyday carry plaid keffiyeh blue bottle wolf quinoa squid four loko glossier kinfolk woke. Plaid cliche cloud bread wolf, etsy humblebrag ennui organic fixie. Tousled sriracha vice VHS. Chillwave vape raw denim aesthetic flannel paleo, austin mixtape lo-fi next level copper mug +1 cred before they sold out. Prism pabst raclette gastropub.");
-    local_bitvec.push(0);
-    mouse_handler(row, index);
-    local_elems.push(row);
+  for (let pkg of packages) {
+
+    // When the node does not exist
+    if (!elems.has(pkg.id)) {
+      let node = gen_row(pkg.name, pkg.id, "Zombie ipsum actually everyday carry plaid keffiyeh blue bottle wolf quinoa squid four loko glossier kinfolk woke. Plaid cliche cloud bread wolf, etsy humblebrag ennui organic fixie. Tousled sriracha vice VHS. Chillwave vape raw denim aesthetic flannel paleo, austin mixtape lo-fi next level copper mug +1 cred before they sold out. Prism pabst raclette gastropub.")
+      let row = {
+        name: pkg.name,
+        node: node,
+        selected: false,
+      };
+
+      elems.set(pkg.id, row);
+      mouse_handler(row);
+    }
+
+    // it already exists
+    let row = elems.get(pkg.id)
+    let node = row.node;
+    // the name is not set in the frontend
+    if (row.name === null && pkg.name !== null) {
+      row.name ??= pkg.name;
+      node.children[0].children[0].replaceWith(generateElements(`<span class="select-text">${pkg.name}</span>`)[0]);
+    }
+    local_elems.push(node);
+
   }
-  elems = local_elems;
-  bitvec = local_bitvec;
-  scrollableArea.replaceChildren(...elems);
+
+  if (!scrollableArea.hasChildNodes()) {
+    scrollableArea.replaceChildren(...local_elems);
+  }
 
   
   if (waitViewVisible) {
