@@ -24,6 +24,7 @@ var packages = [];
 var waitViewVisible = true;
 var n_selected = 0;
 const elems = new Map();
+var ids_ordered = [];
 
 function generateElements(html) {
   const template = document.createElement('template');
@@ -158,10 +159,10 @@ listen('device-ready', (event) => {
     listPackages()
 });
 
-
 listen('packages-updated', (event) => {
+  var elements_in_view = [];
+  let local_id_order = [];
   packages = event.payload;
-  var local_elems = [];
   for (let pkg of packages) {
 
     // When the node does not exist
@@ -185,12 +186,15 @@ listen('packages-updated', (event) => {
       row.name ??= pkg.name;
       node.children[0].children[0].replaceWith(generateElements(`<span class="select-text">${pkg.name}</span>`)[0]);
     }
-    local_elems.push(node);
+    local_id_order.push(pkg.id);
+    elements_in_view.push(node);
 
   }
 
+  ids_ordered = local_id_order;
+
   if (!scrollableArea.hasChildNodes()) {
-    scrollableArea.replaceChildren(...local_elems);
+    scrollableArea.replaceChildren(...elements_in_view);
   }
 
   
@@ -226,6 +230,19 @@ window.addEventListener("DOMContentLoaded", () => {
       clear_selection()
     }
     status_selection_toggle(ui_selection_mode);
+  })
+
+  search.addEventListener('input', (event) => {
+    var local_elements_in_view = [];
+
+    for (let pkgId of ids_ordered) {
+      let row = elems.get(pkgId);
+      if (search.value.length === 0 || pkgId.toLowerCase().includes(search.value) || row.name?.toLowerCase().includes(search.value)) {
+        local_elements_in_view.push(row.node);
+      }
+    }
+
+    scrollableArea.replaceChildren(...local_elements_in_view);
   })
 
   scan();
