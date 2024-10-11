@@ -18,10 +18,11 @@ let selectButton;
 let search;
 let statusEl;
 let waitView;
+
 var packages = [];
 
 var bitvec = [];
-
+var waitViewVisible = true;
 var n_selected = 0;
 var elems = [];
 
@@ -86,10 +87,15 @@ function clear_selection() {
  * @param {string} description - What the knowledgebase has to say about the package
  */
 function gen_row(name, packageId, description) {
+  if (name === null) {
+    name = `<div class="w-32 h-4 rounded bg-zinc-400 animate-pulse"></div>`;
+  } else {
+    name = `<span class="select-text">${name}</span>`;
+  };
   let templ = `<div id="accordion" class="button">
-
-    <div>
-      <span class="select-text">${name}</span>
+  
+    <div class="flex items-center gap-4">
+      ${name}
       <span class="select-text text-zinc-400">${packageId}</span>
     </div>
 
@@ -156,14 +162,7 @@ function status_selection_toggle(is_select) {
 }
 
 listen('device-ready', (event) => {
-  if (event.payload) {
-    waitView.classList.remove("pageFadeIn");
-    waitView.classList.add("pageFadeOut");
     listPackages()
-  } else {
-    waitView.classList.remove("pageFadeOut");
-    waitView.classList.add("pageFadeIn");
-  }
 });
 
 
@@ -171,8 +170,11 @@ listen('packages-updated', (event) => {
   packages = event.payload;
   var local_elems = [];
   var local_bitvec = [];
-  for (const [index, packageId] of packages.entries()) {
-    let row = gen_row("No name", packageId, "Zombie ipsum actually everyday carry plaid keffiyeh blue bottle wolf quinoa squid four loko glossier kinfolk woke. Plaid cliche cloud bread wolf, etsy humblebrag ennui organic fixie. Tousled sriracha vice VHS. Chillwave vape raw denim aesthetic flannel paleo, austin mixtape lo-fi next level copper mug +1 cred before they sold out. Prism pabst raclette gastropub.");
+  console.log(packages);
+  for (const [index, packageStruct] of packages.entries()) {
+    let packageId = packageStruct.id;
+    let packageName = packageStruct.name;
+    let row = gen_row(packageName, packageId, "Zombie ipsum actually everyday carry plaid keffiyeh blue bottle wolf quinoa squid four loko glossier kinfolk woke. Plaid cliche cloud bread wolf, etsy humblebrag ennui organic fixie. Tousled sriracha vice VHS. Chillwave vape raw denim aesthetic flannel paleo, austin mixtape lo-fi next level copper mug +1 cred before they sold out. Prism pabst raclette gastropub.");
     local_bitvec.push(0);
     mouse_handler(row, index);
     local_elems.push(row);
@@ -180,6 +182,25 @@ listen('packages-updated', (event) => {
   elems = local_elems;
   bitvec = local_bitvec;
   scrollableArea.replaceChildren(...elems);
+
+  
+  if (waitViewVisible) {
+    waitViewVisible = false;
+    waitView.classList.remove("pageFadeIn");
+    waitView.classList.add("pageFadeOut");
+  // } else {
+  //   waitViewVisible = true;
+  //   waitView.classList.remove("pageFadeOut");
+  //   waitView.classList.add("pageFadeIn");
+  }
+
+});
+
+listen('indexing-packages', (event) => {
+  let waitHeader =document.querySelector("#waitHeader");
+  let waitDescription =document.querySelector("#waitDescription");
+  waitHeader.innerText = "Indexing packages";
+  waitDescription.innerText = "Indexing packages";
 });
 
 window.addEventListener("DOMContentLoaded", () => {
