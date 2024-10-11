@@ -12,13 +12,13 @@
 <body class="bg-zinc-700 h-screen w-screen text-2xl">
 
   <div id="waitView"
-    class="bg-zinc-700 absolute h-screen flex flex-col items-center justify-center text-zinc-300 p-10 gap-6">
+    class="bg-zinc-700 absolute h-screen w-screen flex flex-col items-center justify-center text-zinc-300 p-10 gap-6">
 
     <div class="flex flex-row gap-4">
       <div class="border-zinc-600 h-8 w-8 animate-spin rounded-full border-4 border-t-zinc-300"></div>
-      Looking for devices
+      <p id="waitHeader">Looking for devices</p>
     </div>
-    <p>
+    <p id="waitDescription">
       Please connect your Android device to the host via a USB cable and ensure that USB debugging is enabled in
       developer settings.
     </p>
