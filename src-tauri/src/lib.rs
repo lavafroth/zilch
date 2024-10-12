@@ -1,7 +1,7 @@
 use retry::{delay::Fixed, retry};
 use serde::Serialize;
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     sync::{Mutex, OnceLock},
 };
 use tauri::Emitter;
@@ -12,7 +12,7 @@ use adb_client::ADBUSBDevice;
 #[tauri::command]
 async fn scan(app: tauri::AppHandle) -> Result<(), String> {
     if DEV.0.get().is_none() {
-        DEV.scan().map_err(|e| format!("{e}"))?;
+        DEV.scan().map_err(|e| e.to_string())?;
     }
     app.emit("device-ready", true)
         .map_err(|_| "failed to emit a message stating the device is ready".to_string())?;
@@ -37,7 +37,7 @@ impl Eq for Package {}
 
 impl PartialOrd for Package {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(&other))
+        Some(self.cmp(other))
     }
 }
 
@@ -48,7 +48,7 @@ impl Ord for Package {
 }
 
 impl Package {
-    fn many_from(s: &str) -> BTreeSet<Self> {
+    fn many_from(s: &str) -> Vec<Self> {
         s.lines()
             .map(|line| line.strip_prefix("package:").unwrap_or(line).to_string())
             .map(|line| match line.rsplit_once("=") {
@@ -76,41 +76,32 @@ async fn list_packages(app: tauri::AppHandle) -> Result<(), String> {
         .lock()
         .expect("could not unwrap handle after initialization; something terrible has happened");
 
-    let pkgs: BTreeSet<_> = Package::many_from(
+    let pkgs: Vec<_> = Package::many_from(
         &dev.device
             .shell("pm list packages -f")
             .map_err(|e| e.to_string())?,
     );
 
-    if dev.pkgs.is_empty() {
-        for pkg in pkgs.iter() {
+    for pkg in pkgs.iter() {
+        if !dev.pkgs.contains_key(&pkg.id) {
             dev.pkgs.insert(pkg.id.clone(), pkg.clone());
         }
-
-        app.emit("packages-updated", pkgs.clone())
-            .map_err(|_| "failed to send indexing message to the frontend".to_string())?;
-    } else {
-        let mut seen_pkgs = vec![];
-        for pkg in pkgs.iter() {
-            if let Some(seen) = dev.pkgs.get(&pkg.id) {
-                seen_pkgs.push(seen.clone());
-            } else {
-                dev.pkgs.insert(pkg.id.clone(), pkg.clone());
-                seen_pkgs.push(pkg.clone());
-            }
-        }
-        app.emit("packages-updated", seen_pkgs.clone())
-            .map_err(|_| "failed to send indexing message to the frontend".to_string())?;
     }
+    app.emit(
+        "packages-updated",
+        dev.pkgs.values().cloned().collect::<Vec<_>>(),
+    )
+    .map_err(|_| "failed to send indexing message to the frontend".to_string())?;
 
-    let mut seen_pkgs = vec![];
     for pkg in pkgs.iter() {
+        if dev
+            .pkgs
+            .get(&pkg.id)
+            .expect("package does not exist in package set despite being added previously")
+            .name
+            .is_some()
         {
-            let seen = dev.pkgs.get(&pkg.id).unwrap();
-            if seen.name.is_some() {
-                seen_pkgs.push(pkg.clone());
-                continue;
-            }
+            continue;
         }
         let pulled = match dev.device.pull(&pkg.path) {
             Ok(pulled) => pulled,
@@ -121,7 +112,6 @@ async fn list_packages(app: tauri::AppHandle) -> Result<(), String> {
                 app.emit("packages-updated", pkgs.clone()).map_err(|_| {
                     "failed to send updated package list to the frontend".to_string()
                 })?;
-                seen_pkgs.push(seen.clone());
                 continue;
             }
         };
@@ -132,9 +122,11 @@ async fn list_packages(app: tauri::AppHandle) -> Result<(), String> {
                 None
             }
         };
-        let seen = dev.pkgs.get_mut(&pkg.id).unwrap();
-        seen.name.replace(label.unwrap_or("No name".to_string()));
-        seen_pkgs.push(seen.clone());
+        dev.pkgs
+            .get_mut(&pkg.id)
+            .expect("package does not exist in package set despite being added previously")
+            .name
+            .replace(label.unwrap_or("No name".to_string()));
         app.emit(
             "packages-updated",
             dev.pkgs.values().cloned().collect::<Vec<_>>(),
@@ -142,8 +134,11 @@ async fn list_packages(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|_| "failed to send updated package list to the frontend".to_string())?;
     }
 
-    app.emit("packages-updated", seen_pkgs)
-        .map_err(|_| "failed to send updated package list to the frontend".to_string())?;
+    app.emit(
+        "packages-updated",
+        dev.pkgs.values().cloned().collect::<Vec<_>>(),
+    )
+    .map_err(|_| "failed to send updated package list to the frontend".to_string())?;
     Ok(())
 }
 
