@@ -28,7 +28,7 @@ pub fn label(contents: &[u8]) -> Result<Option<String>> {
         return Ok(None);
     };
 
-    let Some(attribute) = a.get_children().into_iter().find_map(|child| {
+    let Some(attribute) = a.get_children().iter().find_map(|child| {
         if let Node::Element(e) = child {
             e.get_attributes().get("android:label")
         } else {

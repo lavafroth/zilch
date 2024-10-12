@@ -156,7 +156,7 @@ function status_selection_toggle(is_select) {
 }
 
 listen('device-ready', (event) => {
-    listPackages()
+  setInterval( () => {listPackages()}, 5000)
 });
 
 listen('packages-updated', (event) => {
