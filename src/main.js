@@ -1,30 +1,39 @@
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
+// Thunks that call async Rust routines
+// Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
 async function scan() {
-  // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
   await invoke("scan");
 }
 async function listPackages() {
-  // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
   await invoke("list_packages");
+}
+
+async function uninstallPackages(pkgs) {
+  console.log(pkgs);
+  await invoke("uninstall_packages", { pkgs: pkgs });
 }
 
 var ctrl_is_held = false;
 var ui_selection_mode = false;
 
 let scrollableArea;
-let selectButton;
-let search;
 let statusEl;
 let waitView;
+let search;
+
+// buttons
+let selectButton;
+let uninstallButton;
+let disableButton;
+let revertButton;
 
 var packages = [];
 
 var waitViewVisible = true;
 var n_selected = 0;
 const elems = new Map();
-var ids_ordered = [];
 
 function generateElements(html) {
   const template = document.createElement('template');
@@ -161,7 +170,6 @@ listen('device-ready', (event) => {
 
 listen('packages-updated', (event) => {
   var elements_in_view = [];
-  let local_id_order = [];
   packages = event.payload;
   for (let pkg of packages) {
 
@@ -186,12 +194,10 @@ listen('packages-updated', (event) => {
       row.name ??= pkg.name;
       node.children[0].children[0].replaceWith(generateElements(`<span class="select-text">${pkg.name}</span>`)[0]);
     }
-    local_id_order.push(pkg.id);
     elements_in_view.push(node);
 
   }
 
-  ids_ordered = local_id_order;
 
   if (!scrollableArea.hasChildNodes()) {
     scrollableArea.replaceChildren(...elements_in_view);
@@ -210,6 +216,7 @@ listen('packages-updated', (event) => {
 
 });
 
+
 listen('indexing-packages', (event) => {
   let waitHeader =document.querySelector("#waitHeader");
   let waitDescription =document.querySelector("#waitDescription");
@@ -221,8 +228,11 @@ window.addEventListener("DOMContentLoaded", () => {
   scrollableArea = document.querySelector("#scrollableArea");
   search = document.querySelector("#search");
   statusEl = document.querySelector("#status");
-  selectButton = document.querySelector("#select");
   waitView = document.querySelector("#waitView");
+  selectButton = document.querySelector("#select");
+  uninstallButton = document.querySelector("#uninstall");
+  disableButton = document.querySelector("#disable");
+  revertButton = document.querySelector("#revert");
 
   selectButton.addEventListener('click', (event) => {
     ui_selection_mode ^= true;
@@ -232,12 +242,25 @@ window.addEventListener("DOMContentLoaded", () => {
     status_selection_toggle(ui_selection_mode);
   })
 
-  search.addEventListener('input', (event) => {
-    var local_elements_in_view = [];
+  uninstallButton.addEventListener('click', (event) => {
+    var uninstallPkgList = [];
+    for (let pkg of packages) {
+      let row = elems.get(pkg.id);
+      if (row.selected) {
+        uninstallPkgList.push(pkg.id);
+      }
+    }
+    console.log(uninstallPkgList);
+    uninstallPackages(uninstallPkgList);
+  })
 
-    for (let pkgId of ids_ordered) {
-      let row = elems.get(pkgId);
-      if (search.value.length === 0 || pkgId.toLowerCase().includes(search.value) || row.name?.toLowerCase().includes(search.value)) {
+  search.addEventListener('input', (event) => {
+    var local_elements_in_view = []
+    let searchQueryLowerCase = search.value.toLowerCase()
+
+    for (let pkg of packages) {
+      let row = elems.get(pkg.id);
+      if (searchQueryLowerCase.length === 0 || pkg.id.toLowerCase().includes(searchQueryLowerCase) || row.name?.toLowerCase().includes(searchQueryLowerCase)) {
         local_elements_in_view.push(row.node);
       }
     }
