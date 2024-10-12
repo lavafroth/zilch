@@ -1,5 +1,5 @@
 use retry::{delay::Fixed, retry};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     sync::{Mutex, OnceLock},
@@ -142,6 +142,25 @@ async fn list_packages(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn uninstall_packages(pkgs: Vec<String>) -> Result<(), String> {
+    let mut _dev = DEV
+        .0
+        .get()
+        .expect("could not unwrap handle after initialization; something terrible has happened")
+        .lock()
+        .expect("could not unwrap handle after initialization; something terrible has happened");
+
+    for pkg in pkgs {
+        let uninstall_command = format!("pm uninstall --user 0 -k {pkg}");
+        // println!("I am about to run {uninstall_command:?}");
+        dev.device
+            .shell(&uninstall_command)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 pub struct Device {
     device: ADBUSBDevice,
     pkgs: BTreeMap<String, Package>,
@@ -188,7 +207,11 @@ static DEV: DeviceLock = DeviceLock(OnceLock::new());
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![scan, list_packages])
+        .invoke_handler(tauri::generate_handler![
+            scan,
+            list_packages,
+            uninstall_packages
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
