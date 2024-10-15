@@ -40,6 +40,7 @@ Zilch works with any Android device built on any architecture as long as it can 
 
 ### TODO
 
+- Revert feature
 - Recommendation categories
 - Make uninstall and disable options depend on Android SDK
 
