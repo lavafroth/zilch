@@ -4,7 +4,7 @@ use std::{
     collections::BTreeMap,
     sync::{Mutex, OnceLock},
 };
-use tauri::Emitter;
+use tauri::{AppHandle, Emitter, Listener};
 mod apk;
 
 use adb_client::ADBUSBDevice;
@@ -19,7 +19,7 @@ async fn scan(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Deserialize, Debug)]
 pub struct Package {
     id: String,
     #[serde(skip)]
@@ -68,32 +68,45 @@ impl Package {
 }
 
 #[tauri::command]
-async fn list_packages(app: tauri::AppHandle) -> Result<(), String> {
-    let mut dev = DEV
-        .0
-        .get()
-        .expect("could not unwrap handle after initialization; something terrible has happened")
-        .lock()
-        .expect("could not unwrap handle after initialization; something terrible has happened");
+async fn list_packages(app: AppHandle) -> Result<(), String> {
+    // Release the device mutex after each operation so that
+    // competing events are not blocked
+    let pkgs = {
+        let Ok(mut dev) = DEV
+            .0
+            .get()
+            .expect("could not unwrap handle after initialization; something terrible has happened")
+            .try_lock()
+        else {
+            return Ok(());
+        };
+        let pkgs: Vec<_> = Package::many_from(
+            &dev.device
+                .shell("pm list packages -f")
+                .map_err(|e| e.to_string())?,
+        );
 
-    let pkgs: Vec<_> = Package::many_from(
-        &dev.device
-            .shell("pm list packages -f")
-            .map_err(|e| e.to_string())?,
-    );
-
-    for pkg in pkgs.iter() {
-        if !dev.pkgs.contains_key(&pkg.id) {
-            dev.pkgs.insert(pkg.id.clone(), pkg.clone());
+        for pkg in pkgs.iter() {
+            if !dev.pkgs.contains_key(&pkg.id) {
+                dev.pkgs.insert(pkg.id.clone(), pkg.clone());
+            }
         }
-    }
-    app.emit(
-        "packages-updated",
-        dev.pkgs.values().cloned().collect::<Vec<_>>(),
-    )
-    .map_err(|_| "failed to send indexing message to the frontend".to_string())?;
-
+        app.emit(
+            "packages-updated",
+            dev.pkgs.values().cloned().collect::<Vec<_>>(),
+        )
+        .map_err(|_| "failed to send indexing message to the frontend".to_string())?;
+        pkgs
+    };
     for pkg in pkgs.iter() {
+        let Ok(mut dev) = DEV
+            .0
+            .get()
+            .expect("could not unwrap handle after initialization; something terrible has happened")
+            .try_lock()
+        else {
+            return Ok(());
+        };
         if dev
             .pkgs
             .get(&pkg.id)
@@ -134,6 +147,14 @@ async fn list_packages(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|_| "failed to send updated package list to the frontend".to_string())?;
     }
 
+    let Ok(dev) = DEV
+        .0
+        .get()
+        .expect("could not unwrap handle after initialization; something terrible has happened")
+        .try_lock()
+    else {
+        return Ok(());
+    };
     app.emit(
         "packages-updated",
         dev.pkgs.values().cloned().collect::<Vec<_>>(),
@@ -142,14 +163,17 @@ async fn list_packages(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
 async fn uninstall_packages(pkgs: Vec<String>) -> Result<(), String> {
-    let mut _dev = DEV
-        .0
-        .get()
-        .expect("could not unwrap handle after initialization; something terrible has happened")
-        .lock()
-        .expect("could not unwrap handle after initialization; something terrible has happened");
+    let mut dev = loop {
+        if let Ok(dev) = DEV
+            .0
+            .get()
+            .expect("could not unwrap handle after initialization; something terrible has happened")
+            .try_lock()
+        {
+            break dev;
+        }
+    };
 
     for pkg in pkgs {
         let uninstall_command = format!("pm uninstall --user 0 -k {pkg}");
@@ -175,7 +199,6 @@ impl DeviceLock {
                 continue;
             };
 
-            println!("I found one");
             let Ok(mut device) = retry(Fixed::from_millis(1000).take(5), || {
                 println!("Trying to connect to ({vid}, {pid})");
                 ADBUSBDevice::new(vid, pid, None)
@@ -202,16 +225,19 @@ impl DeviceLock {
 }
 
 static DEV: DeviceLock = DeviceLock(OnceLock::new());
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![
-            scan,
-            list_packages,
-            uninstall_packages
-        ])
+        .setup(|app| {
+            app.listen("uninstall", |event| {
+                if let Ok(payload) = serde_json::from_str::<Vec<String>>(event.payload()) {
+                    tauri::async_runtime::spawn(uninstall_packages(payload));
+                }
+            });
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![scan, list_packages])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

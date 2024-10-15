@@ -1,5 +1,5 @@
 const { invoke } = window.__TAURI__.core;
-const { listen } = window.__TAURI__.event;
+const { listen, emit } = window.__TAURI__.event;
 
 // Thunks that call async Rust routines
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
@@ -11,8 +11,7 @@ async function listPackages() {
 }
 
 async function uninstallPackages(pkgs) {
-  console.log(pkgs);
-  await invoke("uninstall_packages", { pkgs: pkgs });
+  await emit("uninstall",  pkgs );
 }
 
 var ctrl_is_held = false;
@@ -46,7 +45,6 @@ function selection_mode() {
 }
 
 window.addEventListener("keydown", (event) => {
-  // console.log(event)
   if (event.key === "Control") {
     ctrl_is_held = true
     return;
@@ -250,7 +248,6 @@ window.addEventListener("DOMContentLoaded", () => {
         uninstallPkgList.push(pkg.id);
       }
     }
-    console.log(uninstallPkgList);
     uninstallPackages(uninstallPkgList);
   })
 
