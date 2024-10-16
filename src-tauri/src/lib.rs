@@ -98,6 +98,7 @@ async fn list_packages(app: AppHandle) -> Result<(), String> {
         .map_err(|_| "failed to send indexing message to the frontend".to_string())?;
         pkgs
     };
+
     for pkg in pkgs.iter() {
         let Ok(mut dev) = DEV
             .0
@@ -116,33 +117,32 @@ async fn list_packages(app: AppHandle) -> Result<(), String> {
         {
             continue;
         }
-        let pulled = match dev.device.pull(&pkg.path) {
-            Ok(pulled) => pulled,
-            Err(e) => {
-                let seen = dev.pkgs.get_mut(&pkg.id).unwrap();
-                eprintln!("failed to pull apk from device for {}: {e}", pkg.id);
-                seen.name.replace("No name".to_string());
-                app.emit("packages-updated", pkgs.clone()).map_err(|_| {
-                    "failed to send updated package list to the frontend".to_string()
-                })?;
-                continue;
+        let label = match dev.device.pull(&pkg.path) {
+            Ok(pulled) => {
+                let label = match apk::label(&pulled) {
+                    Ok(label) => label,
+                    Err(e) => {
+                        eprintln!("failed to get app label for package: {}: {e}", pkg.id);
+                        None
+                    }
+                };
+                label.unwrap_or("No name".to_string())
             }
-        };
-        let label = match apk::label(&pulled) {
-            Ok(label) => label,
             Err(e) => {
-                eprintln!("failed to get app label for package: {}: {e}", pkg.id);
-                None
+                eprintln!("failed to pull apk from device for {}: {e}", pkg.id);
+                "No name".to_string()
             }
         };
         dev.pkgs
             .get_mut(&pkg.id)
             .expect("package does not exist in package set despite being added previously")
             .name
-            .replace(label.unwrap_or("No name".to_string()));
+            .replace(label);
         app.emit(
             "packages-updated",
-            dev.pkgs.values().cloned().collect::<Vec<_>>(),
+            pkgs.iter()
+                .map(|pkg| dev.pkgs.get(&pkg.id).unwrap())
+                .collect::<Vec<_>>(),
         )
         .map_err(|_| "failed to send updated package list to the frontend".to_string())?;
     }
@@ -157,7 +157,9 @@ async fn list_packages(app: AppHandle) -> Result<(), String> {
     };
     app.emit(
         "packages-updated",
-        dev.pkgs.values().cloned().collect::<Vec<_>>(),
+        pkgs.iter()
+            .map(|pkg| dev.pkgs.get(&pkg.id).unwrap())
+            .collect::<Vec<_>>(),
     )
     .map_err(|_| "failed to send updated package list to the frontend".to_string())?;
     Ok(())

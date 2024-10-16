@@ -16,7 +16,7 @@
   }
 
   .button-select {
-    @apply ring ring-cyan-600 bg-slate-700 hover:bg-slate-600;
+    @apply ring ring-inset ring-cyan-600 bg-slate-700 hover:bg-slate-600;
   }
 
   .status-select {
@@ -25,6 +25,38 @@
 
   .status-normal {
     @apply bg-zinc-600 border-zinc-600;
+  }
+
+  .striped {
+    background: repeating-linear-gradient(45deg,
+        theme(colors.zinc.600),
+        theme(colors.zinc.600) 1rem,
+        theme(colors.zinc.700) 1rem,
+        theme(colors.zinc.700) 2rem);
+  }
+
+  .button-select.striped {
+    background: repeating-linear-gradient(45deg,
+        theme(colors.slate.600),
+        theme(colors.slate.600) 1rem,
+        theme(colors.slate.700) 1rem,
+        theme(colors.slate.700) 2rem);
+  }
+
+  .button-select.striped:nth-of-type(even) {
+    background: repeating-linear-gradient(45deg,
+        theme(colors.slate.700),
+        theme(colors.slate.700) 1rem,
+        theme(colors.slate.600) 1rem,
+        theme(colors.slate.600) 2rem);
+  }
+
+  .striped:nth-of-type(even) {
+    background: repeating-linear-gradient(45deg,
+        theme(colors.zinc.700),
+        theme(colors.zinc.700) 1rem,
+        theme(colors.zinc.600) 1rem,
+        theme(colors.zinc.600) 2rem);
   }
 
   html {
