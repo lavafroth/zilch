@@ -16,6 +16,7 @@ async function uninstallPackages(pkgs) {
 
 var ctrl_is_held = false;
 var ui_selection_mode = false;
+var elements_in_view = [];
 
 let scrollableArea;
 let statusEl;
@@ -32,7 +33,10 @@ var packages = [];
 
 var waitViewVisible = true;
 var n_selected = 0;
+
+const package_ids = new Set();
 const elems = new Map();
+const uninstalled_packages = new Set();
 
 function generateElements(html) {
   const template = document.createElement('template');
@@ -100,7 +104,7 @@ function gen_row(name, packageId, description) {
   
     <div>
       ${name}
-      <span class="select-text text-zinc-400">${packageId}</span>
+      <span class="select-text text-zinc-400 break-all">${packageId}</span>
     </div>
 
     <p class="font-light truncate select-text">${description}</p>
@@ -167,8 +171,21 @@ listen('device-ready', (event) => {
 });
 
 listen('packages-updated', (event) => {
-  var elements_in_view = [];
   packages = event.payload;
+
+  var new_pkg_set = new Set();
+  for (let pkg of packages) {
+    new_pkg_set.add(pkg.id)
+  }
+
+  let set_difference = package_ids.difference(new_pkg_set);
+  for (let pkg of set_difference) {
+    uninstalled_packages.add(pkg);
+    package_ids.delete(pkg);
+    elems.get(pkg)?.node.classList.add('striped');
+  }
+
+  var new_package = false;
   for (let pkg of packages) {
 
     // When the node does not exist
@@ -182,6 +199,9 @@ listen('packages-updated', (event) => {
 
       elems.set(pkg.id, row);
       mouse_handler(row);
+      new_package = true;
+      
+      package_ids.add(pkg.id);
     }
 
     // it already exists
@@ -192,13 +212,18 @@ listen('packages-updated', (event) => {
       row.name ??= pkg.name;
       node.children[0].children[0].replaceWith(generateElements(`<span class="select-text">${pkg.name}</span>`)[0]);
     }
-    elements_in_view.push(node);
+
+    if (uninstalled_packages.has(pkg.id)) {
+      uninstalled_packages.delete(pkg.id);
+      package_ids.add(pkg.id);
+      elems.get(pkg.id).node.classList.remove('striped');
+    }
 
   }
 
 
-  if (!scrollableArea.hasChildNodes()) {
-    scrollableArea.replaceChildren(...elements_in_view);
+  if (!scrollableArea.hasChildNodes() || new_package) {
+    scrollableArea.replaceChildren(...searchFilter(search.value));
   }
 
   
@@ -213,6 +238,18 @@ listen('packages-updated', (event) => {
   }
 
 });
+
+function searchFilter(query) {
+    var local_elements_in_view = []
+    let searchQueryLowerCase = query.toLowerCase()
+
+    for (let [id, row] of elems.entries()) {
+      if (searchQueryLowerCase.length === 0 || id.toLowerCase().includes(searchQueryLowerCase) || row.name?.toLowerCase().includes(searchQueryLowerCase)) {
+        local_elements_in_view.push(row.node);
+      }
+    }
+  return local_elements_in_view
+}
 
 
 listen('indexing-packages', (event) => {
@@ -252,17 +289,7 @@ window.addEventListener("DOMContentLoaded", () => {
   })
 
   search.addEventListener('input', (event) => {
-    var local_elements_in_view = []
-    let searchQueryLowerCase = search.value.toLowerCase()
-
-    for (let pkg of packages) {
-      let row = elems.get(pkg.id);
-      if (searchQueryLowerCase.length === 0 || pkg.id.toLowerCase().includes(searchQueryLowerCase) || row.name?.toLowerCase().includes(searchQueryLowerCase)) {
-        local_elements_in_view.push(row.node);
-      }
-    }
-
-    scrollableArea.replaceChildren(...local_elements_in_view);
+    scrollableArea.replaceChildren(...searchFilter(search.value));
   })
 
   scan();
