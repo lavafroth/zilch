@@ -44,6 +44,14 @@ Zilch works with any Android device built on any architecture as long as it can 
 - Recommendation categories
 - Make uninstall and disable options depend on Android SDK
 
+### Build from source
+
+```sh
+nix develop
+tailwindcss --output src/styles.css --input src/input.css
+cargo tauri dev
+```
+
 ### How is this associated with Universal Android Debloater?
 
 It is not, although I do plan to use their knowledge-base.
