@@ -34,9 +34,10 @@ var packages = [];
 var waitViewVisible = true;
 var n_selected = 0;
 
+// same as the keys of `elems`, sacrificing space complexity
+// so that taking subset difference is better than O(n)
 const package_ids = new Set();
 const elems = new Map();
-const uninstalled_packages = new Set();
 
 function generateElements(html) {
   const template = document.createElement('template');
@@ -180,9 +181,10 @@ listen('packages-updated', (event) => {
 
   let set_difference = package_ids.difference(new_pkg_set);
   for (let pkg of set_difference) {
-    uninstalled_packages.add(pkg);
-    package_ids.delete(pkg);
-    elems.get(pkg)?.node.classList.add('striped');
+    if (elems.has(pkg)) {
+      elems.get(pkg).disabled = true;
+      elems.get(pkg)?.node.classList.add('striped');
+    }
   }
 
   var new_package = false;
@@ -195,6 +197,7 @@ listen('packages-updated', (event) => {
         name: pkg.name,
         node: node,
         selected: false,
+        disabled: false,
       };
 
       elems.set(pkg.id, row);
@@ -202,9 +205,14 @@ listen('packages-updated', (event) => {
       new_package = true;
       
       package_ids.add(pkg.id);
+    } else {
+      // it already exists
+      let row = elems.get(pkg.id);
+      row.disabled = false;
+      // remove the striped background if the app was previously disabled or uninstalled
+      row.node.classList.remove('striped');
     }
 
-    // it already exists
     let row = elems.get(pkg.id)
     let node = row.node;
     // the name is not set in the frontend
@@ -212,13 +220,6 @@ listen('packages-updated', (event) => {
       row.name ??= pkg.name;
       node.children[0].children[0].replaceWith(generateElements(`<span class="select-text">${pkg.name}</span>`)[0]);
     }
-
-    if (uninstalled_packages.has(pkg.id)) {
-      uninstalled_packages.delete(pkg.id);
-      package_ids.add(pkg.id);
-      elems.get(pkg.id).node.classList.remove('striped');
-    }
-
   }
 
 
