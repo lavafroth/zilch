@@ -58,7 +58,7 @@
           # https://github.com/tauri-apps/tauri/issues/7354
           XDG_DATA_DIRS =
             with pkgs;
-            "${gsettings-desktop-schemas}/share/gsettings-schemas/${gsettings-desktop-schemas.name}:${gtk3}/share/gsettings-schemas/${gtk3.name}:$XDG_DATA_DIRS";
+            "${gsettings-desktop-schemas}/share/gsettings-schemas/${gsettings-desktop-schemas.name}:$XDG_DATA_DIRS";
 
         };
       }
