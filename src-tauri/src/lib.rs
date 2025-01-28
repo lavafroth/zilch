@@ -7,6 +7,7 @@ use std::{
 use tauri::{AppHandle, Emitter, Listener};
 mod apk;
 
+use adb_client::ADBDeviceExt;
 use adb_client::ADBUSBDevice;
 
 #[tauri::command]
@@ -80,11 +81,11 @@ async fn list_packages(app: AppHandle) -> Result<(), String> {
         else {
             return Ok(());
         };
-        let pkgs: Vec<_> = Package::many_from(
-            &dev.device
-                .shell("pm list packages -f")
-                .map_err(|e| e.to_string())?,
-        );
+        let mut buffer = Vec::with_capacity(4096);
+        dev.device
+            .shell_command(&["pm list packages -f"], &mut buffer)
+            .map_err(|e| e.to_string())?;
+        let pkgs: Vec<_> = Package::many_from(&std::str::from_utf8(&buffer).unwrap());
 
         for pkg in pkgs.iter() {
             if !dev.pkgs.contains_key(&pkg.id) {
@@ -117,8 +118,9 @@ async fn list_packages(app: AppHandle) -> Result<(), String> {
         {
             continue;
         }
-        let label = match dev.device.pull(&pkg.path) {
-            Ok(pulled) => {
+        let mut pulled = Vec::with_capacity(4096);
+        let label = match dev.device.pull(&pkg.path, &mut pulled) {
+            Ok(_) => {
                 let label = match apk::label(&pulled) {
                     Ok(label) => label,
                     Err(e) => {
@@ -180,8 +182,9 @@ async fn uninstall_packages(pkgs: Vec<String>) -> Result<(), String> {
     for pkg in pkgs {
         let uninstall_command = format!("pm uninstall --user 0 -k {pkg}");
         // println!("I am about to run {uninstall_command:?}");
+        let mut buffer = Vec::with_capacity(256);
         dev.device
-            .shell(&uninstall_command)
+            .shell_command(&[&uninstall_command], &mut buffer)
             .map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -197,22 +200,10 @@ pub struct DeviceLock(OnceLock<Mutex<Device>>);
 impl DeviceLock {
     pub fn scan(&self) -> Result<(), String> {
         loop {
-            let Some((vid, pid)) = adb_client::search_adb_devices() else {
-                continue;
-            };
-
-            let Ok(mut device) = retry(Fixed::from_millis(1000).take(5), || {
-                println!("Trying to connect to ({vid}, {pid})");
-                ADBUSBDevice::new(vid, pid, None)
+            let Ok(device) = retry(Fixed::from_millis(1000).take(5), || {
+                ADBUSBDevice::autodetect()
             }) else {
-                eprintln!("the device took too long to respond, ignoring");
-                continue;
-            };
-            let Ok(_) = retry(Fixed::from_millis(1000).take(5), || {
-                println!("Trying to send connect message to ({vid}, {pid})");
-                device.send_connect()
-            }) else {
-                eprintln!("the device took too long to respond, ignoring");
+                eprintln!("could not find any devices");
                 continue;
             };
             self.0

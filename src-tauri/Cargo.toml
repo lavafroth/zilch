@@ -27,5 +27,4 @@ anyhow = "1.0.89"
 axmldecoder = "0.5.0"
 zip = { version = "2.2.0", default-features=false, features= ["deflate"] }
 arsc = { git = "https://github.com/lavafroth/arsc", branch = "Utf8Error", version = "0.1.5" }
-adb_client = { git = "https://github.com/lavafroth/adb_client.git", branch = "shell-zerocopy", version = "1.0.6" }
-# adb_client = { path = "../../adb_client/adb_client" }
+adb_client = "2.1.5"
