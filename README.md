@@ -28,7 +28,7 @@ not collapse. That is intentional because the alternative implementation is bad 
 - Save the current configuration with `Ctrl` + `S` (not yet implemented)
 - Switch categories with `Ctrl` + `Tab` (not yet implemented)
 
-#### Extract app names by parsing APK files on device
+#### Extracts app names by parsing APK files on device
 
 It isn't always obvious from the package names like `com.oppo.brjl` what app it correlates to
 in the app drawer. Don't fret, we do the legwork for you. Zilch automatically tries to pull
@@ -40,9 +40,9 @@ Zilch works with any Android device built on any architecture as long as it can 
 
 ### TODO
 
-- Revert feature
-- Recommendation categories
-- Make uninstall and disable options depend on Android SDK
+- [ ] Revert feature
+- [ ] Recommendation categories
+- [ ] Make uninstall and disable options depend on Android SDK
 
 ### Build from source
 
@@ -54,10 +54,9 @@ cargo tauri dev
 
 ### How is this associated with Universal Android Debloater?
 
-It is not, although I do plan to use their knowledge-base.
+I plan to import their knowledge-base in the future.
 I have been a contributor to the original repo as well as the now maintained fork.
 
 I started this project because of the following reasons:
 - The current UI written in iced-rs is clunky due to limitations of the library.
 - UAD requires you to have the ADB binary whereas we use our custom implementation of ADB written in Rust from scratch.
-- I'm sick of bikeshedding. I just wanna get work done.
