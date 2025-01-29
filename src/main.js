@@ -31,24 +31,60 @@ let disableButton;
 var packages = [];
 
 var waitViewVisible = true;
-var n_selected = 0;
 
-var disabledCount = 0
-var enabledCount = 0
+class Selection {
+  constructor() {
+    this.disabled = 0
+    this.enabled = 0
+  }
+
+  total() {
+    return this.disabled + this.enabled
+  }
+
+  usable() {
+    return !(this.disabled > 0 && this.enabled > 0)
+  }
+
+  updateButtons() {
+    // console.log(this)
+    if (!this.usable()) {
+      uninstallButton.classList.add('invisible')
+      disableButton.classList.add('invisible')
+      return
+    }
+
+    if (this.disabled > 0) {
+      uninstallButton.innerHTML = revertSvg;
+      uninstallButton.classList.remove('invisible')
+      disableButton.classList.add('invisible');
+      return
+    }
+
+    if (this.enabled > 0) {
+      uninstallButton.innerHTML = trashSvg;
+      uninstallButton.classList.remove('invisible')
+      disableButton.classList.remove('invisible')
+      return
+    }
+  }
+
+  isRubberband() {
+    return ctrl_is_held || ui_selection_mode
+  }
+}
+
+var selection = new Selection()
 
 // same as the keys of `elems`, sacrificing space complexity
 // so that taking subset difference is better than O(n)
 const package_ids = new Set();
-const elems = new Map();
+var elems = new Map();
 
 function generateElements(html) {
   const template = document.createElement('template');
   template.innerHTML = html.trim();
   return template.content.children;
-}
-
-function selection_mode() {
-  return ctrl_is_held || ui_selection_mode
 }
 
 window.addEventListener("keydown", (event) => {
@@ -87,11 +123,9 @@ function clear_selection() {
       row.selected = false;
       row.node?.classList.remove('button-select')
   }
-  n_selected = 0
-  enabledCount = 0
-  disabledCount = 0
-  uninstallButton.innerHTML = trashSvg
-  uninstallButton.classList.remove('bg-zinc-800')
+  selection.enabled = 0;
+  selection.disabled = 0;
+  selection.updateButtons()
   ui_selection_mode = false
 }
 
@@ -135,56 +169,45 @@ const revertSvg = `
       <path d="m7 6-4 4 4 4" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
     </svg>
 `;
-const confusedSvg = `
-<svg class="w-8 h-8 stroke-zinc-300" viewBox="100 100 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
-<path d="M154.604 194.87C152.978 186.642 153.347 178.343 153.347 170.013" stroke="currentColor" stroke-opacity="0.9" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
-<path d="M242.371 185.992C244.005 178.565 242.371 170.603 242.371 162.91" stroke="currentColor" stroke-opacity="0.9" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
-<path d="M143.005 259.779C154.701 272.112 172.594 288.123 187.201 279.067C201.808 270.012 206.715 251.336 224.438 251.336C242.161 251.336 250.719 260.993 258.639 274.76" stroke="currentColor" stroke-opacity="0.9" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
-<path d="M154.605 118C142.523 122.278 132.988 130.833 126 143.664" stroke="currentColor" stroke-opacity="0.9" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
-<path d="M239.933 123.799C253.241 132.353 264.298 136.631 273.106 136.631" stroke="currentColor" stroke-opacity="0.9" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+
+const disableSvg = `
+<svg class="w-8 h-8 fill-none" viewBox="-2 -2 36 36">
+  <path d="M0 0h32v32H0z" />
+  <path class="fill-zinc-300"
+    d="M16 0c8.837 0 16 7.163 16 16s-7.163 16-16 16S0 24.837 0 16 7.163 0 16 0zm0 2C8.268 2 2 8.268 2 16s6.268 14 14 14 14-6.268 14-14S23.732 2 16 2zm2.828 9.757a1 1 0 0 1 1.415 1.415l-7.071 7.07a1 1 0 0 1-1.415-1.414z"
+    fill-rule="nonzero" />
 </svg>
-`;
+`
 
 function toggle_row_focus(row) {
     let node = row.node
     let paragraph = node.children[1]
-    if (!selection_mode()) {
+    if (!selection.isRubberband()) {
       clear_selection()
       row.selected ^= true;
-      n_selected += row.selected ? 1: -1
-      uninstallButton.innerHTML = row.disabled ? revertSvg : trashSvg;
       if (row.disabled) {
-        disabledCount = 1
-        enabledCount = 0
+        selection.disabled = 1;
+        selection.enabled = 0;
       } else {
-        disabledCount = 0
-        enabledCount = 1
+        selection.disabled = 0;
+        selection.enabled = 1;
       }
       node.classList.add('button-select')
       paragraph.classList.toggle('truncate')
     } else {
       row.selected ^= true;
-      n_selected += row.selected ? 1: -1
+      let delta = row.selected ? 1: -1
 
       if (row.disabled) {
-        disabledCount += row.selected ? 1: -1
+        selection.disabled += delta;
       } else {
-        enabledCount += row.selected ? 1: -1
+        selection.enabled += delta;
       }
 
-      if (disabledCount > 0 && enabledCount > 0) {
-        uninstallButton.classList.add('bg-zinc-800')
-        uninstallButton.innerHTML = confusedSvg;
-      } else if (disabledCount > 0) {
-        uninstallButton.classList.remove('bg-zinc-800')
-        uninstallButton.innerHTML = revertSvg;
-      } else {
-        uninstallButton.classList.remove('bg-zinc-800')
-        uninstallButton.innerHTML = trashSvg;
-      }
       node.classList.toggle('button-select');
     }
-    status_selection_toggle(selection_mode())
+    selection.updateButtons()
+    status_selection_toggle(selection.isRubberband())
 }
 
 function mouse_handler(row) {
@@ -211,7 +234,8 @@ function mouse_handler(row) {
 
 function status_selection_toggle(is_select) {
   if (is_select) {
-    if (n_selected != 0) {
+    if (selection.total() != 0) {
+      let n_selected = selection.total()
       statusEl.innerText = `${n_selected} Selected`
     } else {
       statusEl.innerText = "Selection Mode"
@@ -232,18 +256,28 @@ listen('device-ready', (event) => {
 listen('packages-updated', (event) => {
   packages = event.payload;
 
-  var new_pkg_set = new Set();
-  for (let pkg of packages) {
-    new_pkg_set.add(pkg.id)
-  }
+  const new_pkg_set = new Set(packages.map(pkg => pkg.id));
 
   let set_difference = package_ids.difference(new_pkg_set);
   for (let pkg of set_difference) {
-    if (elems.has(pkg)) {
-      elems.get(pkg).disabled = true;
-      elems.get(pkg)?.node.classList.add('striped');
+    if (!elems.has(pkg)) {
+      continue
+    }
+
+    let nowUninstalled = elems.get(pkg) // must be defined
+    if (nowUninstalled.disabled) {
+      continue
+    }
+
+    nowUninstalled.disabled = true;
+    nowUninstalled.node.classList.add('striped');
+    if (nowUninstalled.selected) {
+      selection.disabled += 1
+      selection.enabled -= 1
     }
   }
+
+  selection.updateButtons()
 
   var new_package = false;
   for (let pkg of packages) {
@@ -310,14 +344,6 @@ function searchFilter(query) {
   return local_elements_in_view
 }
 
-
-listen('indexing-packages', (event) => {
-  let waitHeader =document.querySelector("#waitHeader");
-  let waitDescription =document.querySelector("#waitDescription");
-  waitHeader.innerText = "Indexing packages";
-  waitDescription.innerText = "Indexing packages";
-});
-
 window.addEventListener("DOMContentLoaded", () => {
   scrollableArea = document.querySelector("#scrollableArea");
   search = document.querySelector("#search");
@@ -344,7 +370,7 @@ window.addEventListener("DOMContentLoaded", () => {
       }
     }
 
-    if (!(disabledCount > 0 && enabledCount > 0)) {
+    if (selection.usable()) {
       uninstallPackages(uninstallPkgList);
     }
   })
