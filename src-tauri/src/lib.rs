@@ -2,7 +2,7 @@ use retry::{delay::Fixed, retry};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
-    sync::{Mutex, OnceLock},
+    sync::{Mutex, MutexGuard, OnceLock},
 };
 use tauri::{AppHandle, Emitter, Listener};
 mod apk;
@@ -68,19 +68,20 @@ impl Package {
     }
 }
 
+fn try_get_device() -> Result<MutexGuard<'static, Device>, String> {
+    DEV.0
+        .get()
+        .expect("could not unwrap handle after initialization; something terrible has happened")
+        .try_lock()
+        .map_err(|_| "failed to get a handle on device mutex".to_string())
+}
+
 #[tauri::command]
 async fn list_packages(app: AppHandle) -> Result<(), String> {
     // Release the device mutex after each operation so that
     // competing events are not blocked
     let pkgs = {
-        let Ok(mut dev) = DEV
-            .0
-            .get()
-            .expect("could not unwrap handle after initialization; something terrible has happened")
-            .try_lock()
-        else {
-            return Ok(());
-        };
+        let mut dev = try_get_device()?;
         let mut buffer = Vec::with_capacity(4096);
         dev.device
             .shell_command(&["pm list packages -f"], &mut buffer)
@@ -101,14 +102,7 @@ async fn list_packages(app: AppHandle) -> Result<(), String> {
     };
 
     for pkg in pkgs.iter() {
-        let Ok(mut dev) = DEV
-            .0
-            .get()
-            .expect("could not unwrap handle after initialization; something terrible has happened")
-            .try_lock()
-        else {
-            return Ok(());
-        };
+        let mut dev = try_get_device()?;
         if dev
             .pkgs
             .get(&pkg.id)
@@ -149,14 +143,7 @@ async fn list_packages(app: AppHandle) -> Result<(), String> {
         .map_err(|_| "failed to send updated package list to the frontend".to_string())?;
     }
 
-    let Ok(dev) = DEV
-        .0
-        .get()
-        .expect("could not unwrap handle after initialization; something terrible has happened")
-        .try_lock()
-    else {
-        return Ok(());
-    };
+    let dev = try_get_device()?;
     app.emit(
         "packages-updated",
         pkgs.iter()
@@ -185,6 +172,29 @@ async fn uninstall_packages(pkgs: Vec<String>) -> Result<(), String> {
         let mut buffer = Vec::with_capacity(256);
         dev.device
             .shell_command(&[&uninstall_command], &mut buffer)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+async fn disable_packages(pkgs: Vec<String>) -> Result<(), String> {
+    let mut dev = loop {
+        if let Ok(dev) = DEV
+            .0
+            .get()
+            .expect("could not unwrap handle after initialization; something terrible has happened")
+            .try_lock()
+        {
+            break dev;
+        }
+    };
+
+    for pkg in pkgs {
+        let disable_command = format!("pm disable {pkg}");
+        // println!("I am about to run {disable_command:?}");
+        let mut buffer = Vec::with_capacity(256);
+        dev.device
+            .shell_command(&[&disable_command], &mut buffer)
             .map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -226,6 +236,11 @@ pub fn run() {
             app.listen("uninstall", |event| {
                 if let Ok(payload) = serde_json::from_str::<Vec<String>>(event.payload()) {
                     tauri::async_runtime::spawn(uninstall_packages(payload));
+                }
+            });
+            app.listen("disable", |event| {
+                if let Ok(payload) = serde_json::from_str::<Vec<String>>(event.payload()) {
+                    tauri::async_runtime::spawn(disable_packages(payload));
                 }
             });
             Ok(())

@@ -11,7 +11,11 @@ async function listPackages() {
 }
 
 async function uninstallPackages(pkgs) {
-  await emit("uninstall",  pkgs );
+  await emit("uninstall", pkgs);
+}
+
+async function disablePackages(pkgs) {
+  await emit("disable", pkgs);
 }
 
 var elements_in_view = [];
@@ -362,6 +366,20 @@ window.addEventListener("DOMContentLoaded", () => {
 
     if (selection.usable()) {
       uninstallPackages(uninstallPkgList);
+    }
+  })
+
+  disableButton.addEventListener('click', (event) => {
+    var disablePkgList = [];
+    for (let pkg of packages) {
+      let row = elems.get(pkg.id);
+      if (row.selected) {
+        disablePkgList.push(pkg.id);
+      }
+    }
+
+    if (selection.usable()) {
+      disablePackages(disablePkgList);
     }
   })
 
