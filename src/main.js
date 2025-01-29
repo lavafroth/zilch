@@ -14,8 +14,6 @@ async function uninstallPackages(pkgs) {
   await emit("uninstall",  pkgs );
 }
 
-var ctrl_is_held = false;
-var ui_selection_mode = false;
 var elements_in_view = [];
 
 let scrollableArea;
@@ -36,6 +34,8 @@ class Selection {
   constructor() {
     this.disabled = 0
     this.enabled = 0
+    this.ctrlIsHeld = false
+    this.uiRubberband = false
   }
 
   total() {
@@ -70,7 +70,7 @@ class Selection {
   }
 
   isRubberband() {
-    return ctrl_is_held || ui_selection_mode
+    return this.ctrlIsHeld || this.uiRubberband
   }
 }
 
@@ -89,10 +89,10 @@ function generateElements(html) {
 
 window.addEventListener("keydown", (event) => {
   if (event.key === "Control") {
-    ctrl_is_held = true
+    selection.ctrlIsHeld = true
     return;
   }
-  if (event.key === "s" && ctrl_is_held) {
+  if (event.key === "s" && selection.ctrlIsHeld) {
     console.log('Save')
     return;
   }
@@ -114,7 +114,7 @@ window.addEventListener("keydown", (event) => {
 
 window.addEventListener("keyup", (event) => {
   if (event.key === "Control") {
-    ctrl_is_held = false
+    selection.ctrlIsHeld = false
   }
 })
 
@@ -123,10 +123,10 @@ function clear_selection() {
       row.selected = false;
       row.node?.classList.remove('button-select')
   }
-  selection.enabled = 0;
-  selection.disabled = 0;
+  selection.enabled = 0
+  selection.disabled = 0
   selection.updateButtons()
-  ui_selection_mode = false
+  selection.uiRubberband = false
 }
 
 /**
@@ -184,28 +184,19 @@ function toggle_row_focus(row) {
     let paragraph = node.children[1]
     if (!selection.isRubberband()) {
       clear_selection()
-      row.selected ^= true;
-      if (row.disabled) {
-        selection.disabled = 1;
-        selection.enabled = 0;
-      } else {
-        selection.disabled = 0;
-        selection.enabled = 1;
-      }
-      node.classList.add('button-select')
       paragraph.classList.toggle('truncate')
-    } else {
-      row.selected ^= true;
-      let delta = row.selected ? 1: -1
-
-      if (row.disabled) {
-        selection.disabled += delta;
-      } else {
-        selection.enabled += delta;
-      }
-
-      node.classList.toggle('button-select');
     }
+
+    row.selected ^= true;
+    let delta = row.selected ? 1: -1
+
+    if (row.disabled) {
+      selection.disabled += delta;
+    } else {
+      selection.enabled += delta;
+    }
+
+    node.classList.toggle('button-select');
     selection.updateButtons()
     status_selection_toggle(selection.isRubberband())
 }
@@ -250,7 +241,7 @@ function status_selection_toggle(is_select) {
 }
 
 listen('device-ready', (event) => {
-  setInterval( () => {listPackages()}, 5000)
+  setInterval(() => {listPackages()}, 5000)
 });
 
 listen('packages-updated', (event) => {
@@ -258,8 +249,7 @@ listen('packages-updated', (event) => {
 
   const new_pkg_set = new Set(packages.map(pkg => pkg.id));
 
-  let set_difference = package_ids.difference(new_pkg_set);
-  for (let pkg of set_difference) {
+  for (let pkg of package_ids.difference(new_pkg_set)) {
     if (!elems.has(pkg)) {
       continue
     }
@@ -354,11 +344,11 @@ window.addEventListener("DOMContentLoaded", () => {
   disableButton = document.querySelector("#disable");
 
   selectButton.addEventListener('click', (event) => {
-    ui_selection_mode ^= true;
-    if (!ui_selection_mode) {
+    selection.uiRubberband ^= true;
+    if (!selection.uiRubberband) {
       clear_selection()
     }
-    status_selection_toggle(ui_selection_mode);
+    status_selection_toggle(selection.uiRubberband);
   })
 
   uninstallButton.addEventListener('click', (event) => {
