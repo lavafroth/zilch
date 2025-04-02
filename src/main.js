@@ -341,7 +341,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   revertButton.addEventListener('click', (event) => {
     if (selection.usable()) {
-      revertPackages(selection.enabled().map(row => row.id));
+      revertPackages(selection.disabled().map(row => row.id));
     }
   })
 

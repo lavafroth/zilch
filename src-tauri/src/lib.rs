@@ -95,7 +95,7 @@ async fn list_packages(app: AppHandle) -> Result<(), String> {
         }
         app.emit(
             "packages-updated",
-            dev.pkgs.values().cloned().collect::<Vec<_>>(),
+            pkgs.clone(),
         )
         .map_err(|_| "failed to send indexing message to the frontend".to_string())?;
         pkgs
@@ -143,32 +143,37 @@ async fn list_packages(app: AppHandle) -> Result<(), String> {
         .map_err(|_| "failed to send updated package list to the frontend".to_string())?;
     }
 
-    let dev = try_get_device()?;
-    app.emit(
-        "packages-updated",
-        pkgs.iter()
-            .map(|pkg| dev.pkgs.get(&pkg.id).unwrap())
-            .collect::<Vec<_>>(),
-    )
-    .map_err(|_| "failed to send updated package list to the frontend".to_string())?;
+    // let dev = try_get_device()?;
+    // app.emit(
+    //     "packages-updated",
+    //     pkgs.iter()
+    //         .map(|pkg| dev.pkgs.get(&pkg.id).unwrap())
+    //         .collect::<Vec<_>>(),
+    // )
+    // .map_err(|_| "failed to send updated package list to the frontend".to_string())?;
     Ok(())
 }
 
 async fn uninstall_packages(pkgs: Vec<String>) -> Result<(), String> {
     let mut dev = loop {
-        if let Ok(dev) = DEV
-            .0
-            .get()
-            .expect("could not unwrap handle after initialization; something terrible has happened")
-            .try_lock()
-        {
+        if let Ok(dev) = try_get_device() {
             break dev;
         }
     };
+    
 
     for pkg in pkgs {
+        let path = &dev.pkgs.get(&pkg).unwrap().path;
+        if path.is_empty() {
+            eprintln!("oh no! the app has no path for the apk, anyways: proceeding to uninstall");
+        } else {
+            let copy_command = format!("cp {path} /data/local/tmp/{pkg}.apk");
+            let mut buffer = Vec::with_capacity(256);
+            dev.device
+                .shell_command(&[&copy_command], &mut buffer)
+                .map_err(|e| e.to_string())?;
+        }
         let uninstall_command = format!("pm uninstall --user 0 -k {pkg}");
-        // println!("I am about to run {uninstall_command:?}");
         let mut buffer = Vec::with_capacity(256);
         dev.device
             .shell_command(&[&uninstall_command], &mut buffer)
@@ -179,11 +184,7 @@ async fn uninstall_packages(pkgs: Vec<String>) -> Result<(), String> {
 
 async fn disable_packages(pkgs: Vec<String>) -> Result<(), String> {
     let mut dev = loop {
-        if let Ok(dev) = DEV
-            .0
-            .get()
-            .expect("could not unwrap handle after initialization; something terrible has happened")
-            .try_lock()
+        if let Ok(dev) = try_get_device()
         {
             break dev;
         }
@@ -196,6 +197,45 @@ async fn disable_packages(pkgs: Vec<String>) -> Result<(), String> {
         dev.device
             .shell_command(&[&disable_command], &mut buffer)
             .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+async fn revert_packages(pkgs: Vec<String>) -> Result<(), String> {
+    let mut dev = loop {
+        if let Ok(dev) = try_get_device() {
+            break dev;
+        }
+    };
+
+    for pkg in pkgs {
+        let revert_command = format!("package install-existing {pkg}");
+        eprintln!("I am about to run {revert_command:?}");
+        let mut buffer = Vec::with_capacity(256);
+
+        dev.device
+            .shell_command(&[&revert_command], &mut buffer)
+            .map_err(|e| e.to_string())?;
+
+        let output = std::str::from_utf8(&buffer).unwrap();
+        if !output.contains("inaccessible or not found") {
+            return Ok(())
+        }
+        
+
+        let revert_command = format!("pm install -r --user 0 /data/local/tmp/{pkg}.apk");
+        eprintln!("I am about to run {revert_command:?}");
+        buffer.clear();
+        dev.device
+            .shell_command(&[&revert_command], &mut buffer)
+            .map_err(|e| e.to_string())?;
+
+        let output = String::from_utf8(buffer).unwrap();
+
+        eprintln!("output: {output:?}");
+        if output.contains("Unable to open file") {
+            return Err(format!("failed to revert: please soil your pants, this is uncharted territory"));
+        }
     }
     Ok(())
 }
@@ -241,6 +281,11 @@ pub fn run() {
             app.listen("disable", |event| {
                 if let Ok(payload) = serde_json::from_str::<Vec<String>>(event.payload()) {
                     tauri::async_runtime::spawn(disable_packages(payload));
+                }
+            });
+            app.listen("revert", |event| {
+                if let Ok(payload) = serde_json::from_str::<Vec<String>>(event.payload()) {
+                    tauri::async_runtime::spawn(revert_packages(payload));
                 }
             });
             Ok(())

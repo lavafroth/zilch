@@ -19,9 +19,6 @@ Multiple entries can be selected by `Ctrl` clicking them, just like in file
 managers. Alternatively, one can use the multi-select button in the bottom
 action row to achieve the same. You can always cancel a selection by hitting escape.
 
-If you're selecting text (a link or a specific term) from inside an entry, the row will
-not collapse. That is intentional because the alternative implementation is bad UX.
-
 #### Intuitive keyboard shortcuts
 
 - Press `S` or `/` to jump to the search field. Inspired by [docs.rs](https://docs.rs).
@@ -38,9 +35,15 @@ the APK files if they exist on the device, parses them and displays their label.
 
 Zilch works with any Android device built on any architecture as long as it can connect over USB.
 
-### TODO
+#### Undo
 
-- [ ] Revert feature
+If you accidentally disabled or uninstalled a system app, selecting the package entry will
+display the revert button in the bottom action row. Click it to undo the deletion and restore the app.
+
+### Features not implemented yet
+
+- [ ] Save button + shortcut
+- [ ] Knowledge base
 - [ ] Recommendation categories
 - [ ] Make uninstall and disable options depend on Android SDK
 
@@ -59,4 +62,4 @@ I have been a contributor to the original repo as well as the now maintained for
 
 I started this project because of the following reasons:
 - The current UI written in iced-rs is clunky due to limitations of the library.
-- UAD requires you to have the ADB binary whereas we use our custom implementation of ADB written in Rust from scratch.
+- UAD requires the ADB binary whereas we use our custom implementation of ADB written in pure Rust.
