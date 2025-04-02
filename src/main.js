@@ -18,8 +18,6 @@ async function disablePackages(pkgs) {
   await emit("disable", pkgs);
 }
 
-var elements_in_view = [];
-
 let scrollableArea;
 let statusEl;
 let waitView;
@@ -315,15 +313,15 @@ listen('packages-updated', (event) => {
 });
 
 function searchFilter(query) {
-    var local_elements_in_view = []
+    var inView = []
     let searchQueryLowerCase = query.toLowerCase()
 
     for (let [id, row] of elems.entries()) {
       if (searchQueryLowerCase.length === 0 || id.toLowerCase().includes(searchQueryLowerCase) || row.name?.toLowerCase().includes(searchQueryLowerCase)) {
-        local_elements_in_view.push(row.node);
+        inView.push(row.node);
       }
     }
-  return local_elements_in_view
+  return inView
 }
 
 window.addEventListener("DOMContentLoaded", () => {
