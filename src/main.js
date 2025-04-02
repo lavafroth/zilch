@@ -33,8 +33,6 @@ let uninstallButton;
 let revertButton;
 let disableButton;
 
-var packages = [];
-
 var waitViewVisible = true;
 
 class Selection {
@@ -82,7 +80,7 @@ class Selection {
       return
     }
 
-    if (this.disabled().length > 0) {
+    if (this.disabled().length) {
       revertButton.classList.remove('hidden')
       uninstallButton.classList.add('hidden')
       disableButton.classList.add('hidden');
@@ -128,7 +126,7 @@ window.addEventListener("keydown", (event) => {
   // TODO: decrese the scope of this conditional
   if (event.key === "Escape") {
     selection.clear()
-    status_selection_toggle(false)
+    statusModeUpdate()
     return;
   }
   if ('s/'.includes(event.key) && search !== document.activeElement) {
@@ -149,7 +147,7 @@ window.addEventListener("keyup", (event) => {
  * @param {string} packageId - Reverse domain identifier for a package
  * @param {string} description - What the knowledgebase has to say about the package
  */
-function gen_row(name, packageId, description) {
+function newRow(name, packageId, description) {
   if (name === null) {
     name = `<div class="w-32 h-4 rounded bg-zinc-400 animate-pulse inline-block"></div>`;
   } else {
@@ -168,24 +166,7 @@ function gen_row(name, packageId, description) {
   return generateElements(templ)[0]
 }
 
-const trashSvg = `
-<svg class="w-8 h-8 stroke-zinc-300" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path
-              d="m18 6-.8 12.013c-.071 1.052-.106 1.578-.333 1.977a2 2 0 0 1-.866.81c-.413.2-.94.2-1.995.2H9.994c-1.055 0-1.582 0-1.995-.2a2 2 0 0 1-.866-.81c-.227-.399-.262-.925-.332-1.977L6 6M4 6h16m-4 0-.27-.812c-.263-.787-.394-1.18-.637-1.471a2 2 0 0 0-.803-.578C13.938 3 13.524 3 12.694 3h-1.388c-.829 0-1.244 0-1.596.139a2 2 0 0 0-.803.578c-.243.29-.374.684-.636 1.471L8 6"
-              stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-`;
-
-const disableSvg = `
-<svg class="w-8 h-8 fill-none" viewBox="-2 -2 36 36">
-  <path d="M0 0h32v32H0z" />
-  <path class="fill-zinc-300"
-    d="M16 0c8.837 0 16 7.163 16 16s-7.163 16-16 16S0 24.837 0 16 7.163 0 16 0zm0 2C8.268 2 2 8.268 2 16s6.268 14 14 14 14-6.268 14-14S23.732 2 16 2zm2.828 9.757a1 1 0 0 1 1.415 1.415l-7.071 7.07a1 1 0 0 1-1.415-1.414z"
-    fill-rule="nonzero" />
-</svg>
-`
-
-function toggle_row_focus(row) {
+function toggleRowFocus(row) {
     let node = row.node
     let paragraph = node.children[1]
     if (!selection.isRubberband()) {
@@ -197,33 +178,33 @@ function toggle_row_focus(row) {
 
     node.classList.toggle('button-select');
     selection.updateButtons()
-    status_selection_toggle(selection.isRubberband())
+    statusModeUpdate()
 }
 
-function mouse_handler(row) {
+function mouseHandler(row) {
   let node = row.node;
   // Don't collapse a row when the user is selecting
   // something from the description
-  var mouse_clicked = false;
-  var mouse_moved_in_me = false;
+  var mouseClicked = false;
+  var mouseMovedInMe = false;
 
   node.addEventListener('mousedown', (event) => {
-    mouse_clicked = true;
+    mouseClicked = true;
   })
   node.addEventListener('mousemove', (event) => {
-    mouse_moved_in_me ||= mouse_clicked
+    mouseMovedInMe ||= mouseClicked
   })
   node.addEventListener('mouseup', (event) => {
-    if (mouse_clicked && !mouse_moved_in_me) {
-      toggle_row_focus(row)
+    if (mouseClicked && !mouseMovedInMe) {
+      toggleRowFocus(row)
     }
-    mouse_clicked = false;
-    mouse_moved_in_me = false;
+    mouseClicked = false;
+    mouseMovedInMe = false;
   })
 }
 
-function status_selection_toggle(is_select) {
-  if (is_select) {
+function statusModeUpdate() {
+  if (selection.isRubberband()) {
     if (selection.total()) {
       statusEl.innerText = `${selection.total()} Selected`
     } else {
@@ -243,7 +224,7 @@ listen('device-ready', (event) => {
 });
 
 listen('packages-updated', (event) => {
-  packages = event.payload;
+  let packages = event.payload;
 
   const new_pkg_set = new Set(packages.map(pkg => pkg.id));
 
@@ -268,7 +249,7 @@ listen('packages-updated', (event) => {
 
     // When the node does not exist
     if (!elems.has(pkg.id)) {
-      let node = gen_row(pkg.name, pkg.id, "Zombie ipsum actually everyday carry plaid keffiyeh blue bottle wolf quinoa squid four loko glossier kinfolk woke. Plaid cliche cloud bread wolf, etsy humblebrag ennui organic fixie. Tousled sriracha vice VHS. Chillwave vape raw denim aesthetic flannel paleo, austin mixtape lo-fi next level copper mug +1 cred before they sold out. Prism pabst raclette gastropub.")
+      let node = newRow(pkg.name, pkg.id, "Zombie ipsum actually everyday carry plaid keffiyeh blue bottle wolf quinoa squid four loko glossier kinfolk woke. Plaid cliche cloud bread wolf, etsy humblebrag ennui organic fixie. Tousled sriracha vice VHS. Chillwave vape raw denim aesthetic flannel paleo, austin mixtape lo-fi next level copper mug +1 cred before they sold out. Prism pabst raclette gastropub.")
       let row = {
         id: pkg.id,
         name: pkg.name,
@@ -277,7 +258,7 @@ listen('packages-updated', (event) => {
       };
 
       elems.set(pkg.id, row);
-      mouse_handler(row);
+      mouseHandler(row);
       new_package = true;
       
       package_ids.add(pkg.id);
@@ -293,7 +274,7 @@ listen('packages-updated', (event) => {
     let node = row.node;
     // the name is not set in the frontend
     if (row.name === null && pkg.name !== null) {
-      row.name ??= pkg.name;
+      row.name = pkg.name;
       node.children[0].children[0].replaceWith(generateElements(`<span class="select-text">${pkg.name}</span>`)[0]);
     }
   }
@@ -317,7 +298,7 @@ listen('packages-updated', (event) => {
 });
 
 function searchFilter(query) {
-    var inView = []
+    let inView = []
     let searchQueryLowerCase = query.toLowerCase()
 
     for (let [id, row] of elems.entries()) {
@@ -343,7 +324,7 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!selection.uiRubberband) {
       selection.clear()
     }
-    status_selection_toggle(selection.uiRubberband);
+    statusModeUpdate();
   })
 
   uninstallButton.addEventListener('click', (event) => {
