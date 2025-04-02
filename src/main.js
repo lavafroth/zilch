@@ -14,6 +14,10 @@ async function uninstallPackages(pkgs) {
   await emit("uninstall", pkgs);
 }
 
+async function revertPackages(pkgs) {
+  await emit("revert", pkgs);
+}
+
 async function disablePackages(pkgs) {
   await emit("disable", pkgs);
 }
@@ -351,6 +355,12 @@ window.addEventListener("DOMContentLoaded", () => {
   disableButton.addEventListener('click', (event) => {
     if (selection.usable()) {
       disablePackages(selection.enabled().map(row => row.id));
+    }
+  })
+
+  revertButton.addEventListener('click', (event) => {
+    if (selection.usable()) {
+      revertPackages(selection.enabled().map(row => row.id));
     }
   })
 
