@@ -28,6 +28,7 @@ let search;
 // buttons
 let selectButton;
 let uninstallButton;
+let revertButton;
 let disableButton;
 
 var packages = [];
@@ -36,41 +37,59 @@ var waitViewVisible = true;
 
 class Selection {
   constructor() {
-    this.disabled = 0
-    this.enabled = 0
+    this.sel = new Set();
     this.ctrlIsHeld = false
     this.uiRubberband = false
   }
 
   total() {
-    return this.disabled + this.enabled
+    return this.sel.size
+  }
+
+  enabled() {
+    return Array.from(this.sel.values()).filter(row => !row.disabled)
+  }
+
+  disabled() {
+    return Array.from(this.sel.values()).filter(row => row.disabled)
+  }
+
+  toggle(row) {
+    this.sel.delete(row) || this.sel.add(row)
   }
 
   usable() {
-    return !(this.disabled > 0 && this.enabled > 0)
+    let howManyDisabled = this.disabled().length;
+    return howManyDisabled == 0 || howManyDisabled == this.sel.size
+  }
+
+  clear() {
+    for (let row of this.sel) {
+        row.node?.classList.remove('button-select')
+    }
+    selection.sel.clear()
+    selection.updateButtons()
+    selection.uiRubberband = false
   }
 
   updateButtons() {
-    // console.log(this)
     if (!this.usable()) {
-      uninstallButton.classList.add('invisible')
-      disableButton.classList.add('invisible')
+      uninstallButton.classList.add('hidden')
+      revertButton.classList.add('hidden')
+      disableButton.classList.add('hidden')
       return
     }
 
-    if (this.disabled > 0) {
-      uninstallButton.innerHTML = revertSvg;
-      uninstallButton.classList.remove('invisible')
-      disableButton.classList.add('invisible');
+    if (this.disabled().length > 0) {
+      revertButton.classList.remove('hidden')
+      uninstallButton.classList.add('hidden')
+      disableButton.classList.add('hidden');
       return
     }
 
-    if (this.enabled > 0) {
-      uninstallButton.innerHTML = trashSvg;
-      uninstallButton.classList.remove('invisible')
-      disableButton.classList.remove('invisible')
-      return
-    }
+    revertButton.classList.add('hidden')
+    uninstallButton.classList.remove('hidden')
+    disableButton.classList.remove('hidden')
   }
 
   isRubberband() {
@@ -106,11 +125,11 @@ window.addEventListener("keydown", (event) => {
   }
   // TODO: decrese the scope of this conditional
   if (event.key === "Escape") {
-    clear_selection()
+    selection.clear()
     status_selection_toggle(false)
     return;
   }
-  if ((event.key === "s" || event.key === "/") && search !== document.activeElement) {
+  if ('s/'.includes(event.key) && search !== document.activeElement) {
     event.preventDefault()
     search.focus()
   }
@@ -121,17 +140,6 @@ window.addEventListener("keyup", (event) => {
     selection.ctrlIsHeld = false
   }
 })
-
-function clear_selection() {
-  for (let row of elems.values()) {
-      row.selected = false;
-      row.node?.classList.remove('button-select')
-  }
-  selection.enabled = 0
-  selection.disabled = 0
-  selection.updateButtons()
-  selection.uiRubberband = false
-}
 
 /**
  * Create a collapsable accordion row for a given package.
@@ -166,14 +174,6 @@ const trashSvg = `
           </svg>
 `;
 
-const revertSvg = `
-    <svg class="w-8 h-8 stroke-zinc-300" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M4 10h13a4 4 0 0 1 4 4v0a4 4 0 0 1-4 4h-5" stroke-width="1.3" stroke-linecap="round"
-        stroke-linejoin="round" />
-      <path d="m7 6-4 4 4 4" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
-    </svg>
-`;
-
 const disableSvg = `
 <svg class="w-8 h-8 fill-none" viewBox="-2 -2 36 36">
   <path d="M0 0h32v32H0z" />
@@ -187,18 +187,11 @@ function toggle_row_focus(row) {
     let node = row.node
     let paragraph = node.children[1]
     if (!selection.isRubberband()) {
-      clear_selection()
+      selection.clear()
       paragraph.classList.toggle('truncate')
     }
 
-    row.selected ^= true;
-    let delta = row.selected ? 1: -1
-
-    if (row.disabled) {
-      selection.disabled += delta;
-    } else {
-      selection.enabled += delta;
-    }
+    selection.toggle(row);
 
     node.classList.toggle('button-select');
     selection.updateButtons()
@@ -229,9 +222,8 @@ function mouse_handler(row) {
 
 function status_selection_toggle(is_select) {
   if (is_select) {
-    if (selection.total() != 0) {
-      let n_selected = selection.total()
-      statusEl.innerText = `${n_selected} Selected`
+    if (selection.total()) {
+      statusEl.innerText = `${selection.total()} Selected`
     } else {
       statusEl.innerText = "Selection Mode"
     }
@@ -265,10 +257,6 @@ listen('packages-updated', (event) => {
 
     nowUninstalled.disabled = true;
     nowUninstalled.node.classList.add('striped');
-    if (nowUninstalled.selected) {
-      selection.disabled += 1
-      selection.enabled -= 1
-    }
   }
 
   selection.updateButtons()
@@ -280,9 +268,9 @@ listen('packages-updated', (event) => {
     if (!elems.has(pkg.id)) {
       let node = gen_row(pkg.name, pkg.id, "Zombie ipsum actually everyday carry plaid keffiyeh blue bottle wolf quinoa squid four loko glossier kinfolk woke. Plaid cliche cloud bread wolf, etsy humblebrag ennui organic fixie. Tousled sriracha vice VHS. Chillwave vape raw denim aesthetic flannel paleo, austin mixtape lo-fi next level copper mug +1 cred before they sold out. Prism pabst raclette gastropub.")
       let row = {
+        id: pkg.id,
         name: pkg.name,
         node: node,
-        selected: false,
         disabled: false,
       };
 
@@ -346,40 +334,25 @@ window.addEventListener("DOMContentLoaded", () => {
   selectButton = document.querySelector("#select");
   uninstallButton = document.querySelector("#uninstall");
   disableButton = document.querySelector("#disable");
+  revertButton = document.querySelector("#revert");
 
   selectButton.addEventListener('click', (event) => {
     selection.uiRubberband ^= true;
     if (!selection.uiRubberband) {
-      clear_selection()
+      selection.clear()
     }
     status_selection_toggle(selection.uiRubberband);
   })
 
   uninstallButton.addEventListener('click', (event) => {
-    var uninstallPkgList = [];
-    for (let pkg of packages) {
-      let row = elems.get(pkg.id);
-      if (row.selected) {
-        uninstallPkgList.push(pkg.id);
-      }
-    }
-
     if (selection.usable()) {
-      uninstallPackages(uninstallPkgList);
+      uninstallPackages(selection.enabled().map(row => row.id));
     }
   })
 
   disableButton.addEventListener('click', (event) => {
-    var disablePkgList = [];
-    for (let pkg of packages) {
-      let row = elems.get(pkg.id);
-      if (row.selected) {
-        disablePkgList.push(pkg.id);
-      }
-    }
-
     if (selection.usable()) {
-      disablePackages(disablePkgList);
+      disablePackages(selection.enabled().map(row => row.id));
     }
   })
 
