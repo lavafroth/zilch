@@ -93,11 +93,8 @@ async fn list_packages(app: AppHandle) -> Result<(), String> {
                 dev.pkgs.insert(pkg.id.clone(), pkg.clone());
             }
         }
-        app.emit(
-            "packages-updated",
-            pkgs.clone(),
-        )
-        .map_err(|_| "failed to send indexing message to the frontend".to_string())?;
+        app.emit("packages-updated", pkgs.clone())
+            .map_err(|_| "failed to send indexing message to the frontend".to_string())?;
         pkgs
     };
 
@@ -160,7 +157,6 @@ async fn uninstall_packages(pkgs: Vec<String>) -> Result<(), String> {
             break dev;
         }
     };
-    
 
     for pkg in pkgs {
         let path = &dev.pkgs.get(&pkg).unwrap().path;
@@ -184,8 +180,7 @@ async fn uninstall_packages(pkgs: Vec<String>) -> Result<(), String> {
 
 async fn disable_packages(pkgs: Vec<String>) -> Result<(), String> {
     let mut dev = loop {
-        if let Ok(dev) = try_get_device()
-        {
+        if let Ok(dev) = try_get_device() {
             break dev;
         }
     };
@@ -219,9 +214,8 @@ async fn revert_packages(pkgs: Vec<String>) -> Result<(), String> {
 
         let output = std::str::from_utf8(&buffer).unwrap();
         if !output.contains("inaccessible or not found") {
-            return Ok(())
+            return Ok(());
         }
-        
 
         let revert_command = format!("pm install -r --user 0 /data/local/tmp/{pkg}.apk");
         eprintln!("I am about to run {revert_command:?}");
@@ -234,7 +228,9 @@ async fn revert_packages(pkgs: Vec<String>) -> Result<(), String> {
 
         eprintln!("output: {output:?}");
         if output.contains("Unable to open file") {
-            return Err(format!("failed to revert: please soil your pants, this is uncharted territory"));
+            return Err(format!(
+                "failed to revert: please soil your pants, this is uncharted territory"
+            ));
         }
     }
     Ok(())
@@ -271,6 +267,7 @@ static DEV: DeviceLock = DeviceLock(OnceLock::new());
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             app.listen("uninstall", |event| {

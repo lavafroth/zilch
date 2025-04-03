@@ -1,5 +1,6 @@
 const { invoke } = window.__TAURI__.core;
 const { listen, emit } = window.__TAURI__.event;
+const { save } = window.__TAURI__.dialog;
 import { Selection } from './selection.js';
 
 // Thunks that call async Rust routines
@@ -49,22 +50,33 @@ function generateElements(html) {
   return template.content.children;
 }
 
+async function promptSavePath() {
+  const path = await save({
+    filters: [
+      {
+        name: 'zilch configs',
+        extensions: ['json', 'zilch'],
+      },
+    ],
+  });
+  console.log(path);
+}
+
 window.addEventListener("keydown", (event) => {
   if (event.key === "Control") {
     selection.ctrlIsHeld = true
     return;
   }
-  if (event.key === "s" && selection.ctrlIsHeld) {
-    console.log('Save')
+  if (!waitViewVisible && event.key === "s" && selection.ctrlIsHeld) {
+    promptSavePath();
     return;
   }
   if (event.key === "Escape" && search === document.activeElement) {
     search.blur();
     return;
   }
-  // TODO: decrese the scope of this conditional
-  if (event.key === "Escape") {
-    selection.clear(buttons)
+  if (!waitViewVisible && event.key === "Escape") {
+    selection.clear()
     statusModeUpdate()
     return;
   }
