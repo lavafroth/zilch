@@ -1,5 +1,6 @@
 const { invoke } = window.__TAURI__.core;
 const { listen, emit } = window.__TAURI__.event;
+import { Selection } from './selection.js';
 
 // Thunks that call async Rust routines
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
@@ -27,82 +28,20 @@ let statusEl;
 let waitView;
 let search;
 
-// buttons
-let selectButton;
-let uninstallButton;
-let revertButton;
-let disableButton;
+const buttons = {
+  select: null,
+  uninstall: null,
+  revert: null,
+  disable: null,
+};
 
-var waitViewVisible = true;
+let waitViewVisible = true;
 
-class Selection {
-  constructor() {
-    this.sel = new Set();
-    this.ctrlIsHeld = false
-    this.uiRubberband = false
-  }
+const selection = new Selection()
 
-  total() {
-    return this.sel.size
-  }
-
-  enabled() {
-    return Array.from(this.sel.values()).filter(row => !row.disabled)
-  }
-
-  disabled() {
-    return Array.from(this.sel.values()).filter(row => row.disabled)
-  }
-
-  toggle(row) {
-    this.sel.delete(row) || this.sel.add(row)
-  }
-
-  usable() {
-    let howManyDisabled = this.disabled().length;
-    return howManyDisabled == 0 || howManyDisabled == this.sel.size
-  }
-
-  clear() {
-    for (let row of this.sel) {
-        row.node?.classList.remove('button-select')
-    }
-    selection.sel.clear()
-    selection.updateButtons()
-    selection.uiRubberband = false
-  }
-
-  updateButtons() {
-    if (!this.usable()) {
-      uninstallButton.classList.add('hidden')
-      revertButton.classList.add('hidden')
-      disableButton.classList.add('hidden')
-      return
-    }
-
-    if (this.disabled().length) {
-      revertButton.classList.remove('hidden')
-      uninstallButton.classList.add('hidden')
-      disableButton.classList.add('hidden');
-      return
-    }
-
-    revertButton.classList.add('hidden')
-    uninstallButton.classList.remove('hidden')
-    disableButton.classList.remove('hidden')
-  }
-
-  isRubberband() {
-    return this.ctrlIsHeld || this.uiRubberband
-  }
-}
-
-var selection = new Selection()
-
-// same as the keys of `elems`, sacrificing space complexity
-// so that taking subset difference is better than O(n)
-const package_ids = new Set();
-var elems = new Map();
+// All package IDs seen in the lifetime of the program.
+// Elements (rows) visible on screen with some additional metadata.
+let elems = new Map();
 
 function generateElements(html) {
   const template = document.createElement('template');
@@ -125,7 +64,7 @@ window.addEventListener("keydown", (event) => {
   }
   // TODO: decrese the scope of this conditional
   if (event.key === "Escape") {
-    selection.clear()
+    selection.clear(buttons)
     statusModeUpdate()
     return;
   }
@@ -170,14 +109,14 @@ function toggleRowFocus(row) {
     let node = row.node
     let paragraph = node.children[1]
     if (!selection.isRubberband()) {
-      selection.clear()
+      selection.clear(buttons)
       paragraph.classList.toggle('truncate')
     }
 
     selection.toggle(row);
 
     node.classList.toggle('button-select');
-    selection.updateButtons()
+    selection.updateButtons(buttons)
     statusModeUpdate()
 }
 
@@ -185,8 +124,8 @@ function mouseHandler(row) {
   let node = row.node;
   // Don't collapse a row when the user is selecting
   // something from the description
-  var mouseClicked = false;
-  var mouseMovedInMe = false;
+  let mouseClicked = false;
+  let mouseMovedInMe = false;
 
   node.addEventListener('mousedown', (event) => {
     mouseClicked = true;
@@ -225,15 +164,14 @@ listen('device-ready', (event) => {
 
 listen('packages-updated', (event) => {
   let packages = event.payload;
+  let newPkgIds = new Set(packages.map(pkg => pkg.id));
 
-  const new_pkg_set = new Set(packages.map(pkg => pkg.id));
-
-  for (let pkg of package_ids.difference(new_pkg_set)) {
-    if (!elems.has(pkg)) {
+  for (let [id, elem] of elems.entries()) {
+    if (newPkgIds.has(id)) {
       continue
     }
 
-    let nowUninstalled = elems.get(pkg) // must be defined
+    let nowUninstalled = elem
     if (nowUninstalled.disabled) {
       continue
     }
@@ -242,9 +180,9 @@ listen('packages-updated', (event) => {
     nowUninstalled.node.classList.add('striped');
   }
 
-  selection.updateButtons()
+  selection.updateButtons(buttons)
 
-  var new_package = false;
+  let newPackage = false;
   for (let pkg of packages) {
 
     // When the node does not exist
@@ -259,9 +197,7 @@ listen('packages-updated', (event) => {
 
       elems.set(pkg.id, row);
       mouseHandler(row);
-      new_package = true;
-      
-      package_ids.add(pkg.id);
+      newPackage = true;
     } else {
       // it already exists
       let row = elems.get(pkg.id);
@@ -280,7 +216,7 @@ listen('packages-updated', (event) => {
   }
 
 
-  if (!scrollableArea.hasChildNodes() || new_package) {
+  if (!scrollableArea.hasChildNodes() || newPackage) {
     scrollableArea.replaceChildren(...searchFilter(search.value));
   }
 
@@ -314,32 +250,32 @@ window.addEventListener("DOMContentLoaded", () => {
   search = document.querySelector("#search");
   statusEl = document.querySelector("#status");
   waitView = document.querySelector("#waitView");
-  selectButton = document.querySelector("#select");
-  uninstallButton = document.querySelector("#uninstall");
-  disableButton = document.querySelector("#disable");
-  revertButton = document.querySelector("#revert");
+  buttons.select = document.querySelector("#select");
+  buttons.uninstall = document.querySelector("#uninstall");
+  buttons.disable = document.querySelector("#disable");
+  buttons.revert = document.querySelector("#revert");
 
-  selectButton.addEventListener('click', (event) => {
+  buttons.select.addEventListener('click', (event) => {
     selection.uiRubberband ^= true;
     if (!selection.uiRubberband) {
-      selection.clear()
+      selection.clear(buttons)
     }
     statusModeUpdate();
   })
 
-  uninstallButton.addEventListener('click', (event) => {
+  buttons.uninstall.addEventListener('click', (event) => {
     if (selection.usable()) {
       uninstallPackages(selection.enabled().map(row => row.id));
     }
   })
 
-  disableButton.addEventListener('click', (event) => {
+  buttons.disable.addEventListener('click', (event) => {
     if (selection.usable()) {
       disablePackages(selection.enabled().map(row => row.id));
     }
   })
 
-  revertButton.addEventListener('click', (event) => {
+  buttons.revert.addEventListener('click', (event) => {
     if (selection.usable()) {
       revertPackages(selection.disabled().map(row => row.id));
     }
