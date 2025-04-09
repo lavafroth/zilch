@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     sync::{Mutex, MutexGuard, OnceLock},
+    thread,
+    time::Duration,
 };
 use tauri::{AppHandle, Emitter, Listener};
 mod apk;
@@ -140,14 +142,6 @@ async fn list_packages(app: AppHandle) -> Result<(), String> {
         .map_err(|_| "failed to send updated package list to the frontend".to_string())?;
     }
 
-    // let dev = try_get_device()?;
-    // app.emit(
-    //     "packages-updated",
-    //     pkgs.iter()
-    //         .map(|pkg| dev.pkgs.get(&pkg.id).unwrap())
-    //         .collect::<Vec<_>>(),
-    // )
-    // .map_err(|_| "failed to send updated package list to the frontend".to_string())?;
     Ok(())
 }
 
@@ -246,10 +240,8 @@ pub struct DeviceLock(OnceLock<Mutex<Device>>);
 impl DeviceLock {
     pub fn scan(&self) -> Result<(), String> {
         loop {
-            let Ok(device) = retry(Fixed::from_millis(1000).take(5), || {
-                ADBUSBDevice::autodetect()
-            }) else {
-                eprintln!("could not find any devices");
+            let Ok(device) = ADBUSBDevice::autodetect() else {
+                thread::sleep(Duration::from_secs(3));
                 continue;
             };
             self.0
