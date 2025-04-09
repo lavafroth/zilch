@@ -1,5 +1,3 @@
-use retry::{delay::Fixed, retry};
-use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     sync::{Mutex, MutexGuard, OnceLock},
@@ -8,7 +6,8 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Listener};
 mod apk;
-
+mod package;
+use package::Package;
 use adb_client::ADBDeviceExt;
 use adb_client::ADBUSBDevice;
 
@@ -20,54 +19,6 @@ async fn scan(app: tauri::AppHandle) -> Result<(), String> {
     app.emit("device-ready", true)
         .map_err(|_| "failed to emit a message stating the device is ready".to_string())?;
     Ok(())
-}
-
-#[derive(Serialize, Clone, Deserialize, Debug)]
-pub struct Package {
-    id: String,
-    #[serde(skip)]
-    path: String,
-    name: Option<String>,
-}
-
-impl PartialEq for Package {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-
-impl Eq for Package {}
-
-impl PartialOrd for Package {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Package {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.id.cmp(&other.id)
-    }
-}
-
-impl Package {
-    fn many_from(s: &str) -> Vec<Self> {
-        s.lines()
-            .map(|line| line.strip_prefix("package:").unwrap_or(line).to_string())
-            .map(|line| match line.rsplit_once("=") {
-                Some((path, id)) => Package {
-                    name: None,
-                    id: id.to_string(),
-                    path: path.to_string(),
-                },
-                None => Package {
-                    name: None,
-                    id: line,
-                    path: String::default(),
-                },
-            })
-            .collect()
-    }
 }
 
 fn try_get_device() -> Result<MutexGuard<'static, Device>, String> {
@@ -88,7 +39,7 @@ async fn list_packages(app: AppHandle) -> Result<(), String> {
         dev.device
             .shell_command(&["pm list packages -f"], &mut buffer)
             .map_err(|e| e.to_string())?;
-        let pkgs: Vec<_> = Package::many_from(&std::str::from_utf8(&buffer).unwrap());
+        let pkgs: Vec<_> = Package::many_from(std::str::from_utf8(&buffer).unwrap());
 
         for pkg in pkgs.iter() {
             if !dev.pkgs.contains_key(&pkg.id) {
@@ -222,9 +173,7 @@ async fn revert_packages(pkgs: Vec<String>) -> Result<(), String> {
 
         eprintln!("output: {output:?}");
         if output.contains("Unable to open file") {
-            return Err(format!(
-                "failed to revert: please soil your pants, this is uncharted territory"
-            ));
+            return Err("failed to revert: please soil your pants, this is uncharted territory".to_string());
         }
     }
     Ok(())
