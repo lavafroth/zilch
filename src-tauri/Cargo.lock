@@ -3766,15 +3766,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "retry"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1e211f878258887b3e65dd3c8ff9f530fe109f441a117ee0cdc27f341355032"
-dependencies = [
- "rand 0.9.0",
-]
-
-[[package]]
 name = "rfd"
 version = "0.15.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6346,13 +6337,12 @@ dependencies = [
 
 [[package]]
 name = "zilch"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "adb_client",
  "anyhow",
  "arsc",
  "axmldecoder",
- "retry",
  "serde",
  "serde_json",
  "tauri",
