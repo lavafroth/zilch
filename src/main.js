@@ -5,11 +5,12 @@ import { Selection } from './selection.js';
 
 // Thunks that call async Rust routines
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
+
 async function scan() {
   await invoke("scan");
 }
 async function listPackages() {
-  await invoke("list_packages");
+  await invoke("list_packages").catch(handleUsbDisconnect);
 }
 
 async function uninstallPackages(pkgs) {
@@ -40,9 +41,23 @@ let waitViewVisible = true;
 
 const selection = new Selection()
 
-// All package IDs seen in the lifetime of the program.
+// All package IDs seen in the lifetime of a USB session.
 // Elements (rows) visible on screen with some additional metadata.
 let elems = new Map();
+
+function handleUsbDisconnect(error) {
+  if (error.includes("USB Error: No such device") && !waitViewVisible) {
+
+    console.debug('the usb device has been disconnected');
+    waitViewVisible = true;
+    waitView.classList.remove("pageFadeOut");
+    waitView.classList.add("pageFadeIn");
+
+    elems.clear(); // clear out the packages seen
+    selection.clear(); // clear any previous selection
+    scan(); // put the scan function on the event loop
+  }
+}
 
 function generateElements(html) {
   const template = document.createElement('template');
@@ -171,7 +186,13 @@ function statusModeUpdate() {
 }
 
 listen('device-ready', (event) => {
-  setInterval(() => {listPackages()}, 5000)
+  listPackages()
+  setInterval(() => {
+    if (waitViewVisible) {
+      return;
+    }
+    listPackages()
+  }, 5000)
 });
 
 listen('packages-updated', (event) => {
@@ -237,10 +258,6 @@ listen('packages-updated', (event) => {
     waitViewVisible = false;
     waitView.classList.remove("pageFadeIn");
     waitView.classList.add("pageFadeOut");
-  // } else {
-  //   waitViewVisible = true;
-  //   waitView.classList.remove("pageFadeOut");
-  //   waitView.classList.add("pageFadeIn");
   }
 
 });

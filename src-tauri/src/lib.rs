@@ -1,32 +1,22 @@
 use std::{
     collections::BTreeMap,
-    sync::{Mutex, MutexGuard, OnceLock},
+    sync::{RwLock, RwLockWriteGuard},
     thread,
     time::Duration,
 };
 use tauri::{AppHandle, Emitter, Listener};
 mod apk;
 mod package;
-use package::Package;
 use adb_client::ADBDeviceExt;
 use adb_client::ADBUSBDevice;
+use package::Package;
 
 #[tauri::command]
 async fn scan(app: tauri::AppHandle) -> Result<(), String> {
-    if DEV.0.get().is_none() {
-        DEV.scan().map_err(|e| e.to_string())?;
-    }
+    DEV.scan()?;
     app.emit("device-ready", true)
         .map_err(|_| "failed to emit a message stating the device is ready".to_string())?;
     Ok(())
-}
-
-fn try_get_device() -> Result<MutexGuard<'static, Device>, String> {
-    DEV.0
-        .get()
-        .expect("could not unwrap handle after initialization; something terrible has happened")
-        .try_lock()
-        .map_err(|_| "failed to get a handle on device mutex".to_string())
 }
 
 #[tauri::command]
@@ -34,7 +24,8 @@ async fn list_packages(app: AppHandle) -> Result<(), String> {
     // Release the device mutex after each operation so that
     // competing events are not blocked
     let pkgs = {
-        let mut dev = try_get_device()?;
+        let mut try_get = DEV.try_get()?;
+        let dev = try_get.as_mut().unwrap();
         let mut buffer = Vec::with_capacity(4096);
         dev.device
             .shell_command(&["pm list packages -f"], &mut buffer)
@@ -52,7 +43,8 @@ async fn list_packages(app: AppHandle) -> Result<(), String> {
     };
 
     for pkg in pkgs.iter() {
-        let mut dev = try_get_device()?;
+        let mut try_get = DEV.try_get()?;
+        let dev = try_get.as_mut().unwrap();
         if dev
             .pkgs
             .get(&pkg.id)
@@ -97,11 +89,14 @@ async fn list_packages(app: AppHandle) -> Result<(), String> {
 }
 
 async fn uninstall_packages(pkgs: Vec<String>) -> Result<(), String> {
-    let mut dev = loop {
-        if let Ok(dev) = try_get_device() {
-            break dev;
-        }
-    };
+    let mut try_get = DEV.try_get()?;
+    let mut maybe_device = try_get.as_mut();
+    while maybe_device.is_none() {
+        try_get = DEV.try_get()?;
+        maybe_device = try_get.as_mut();
+    }
+
+    let dev = maybe_device.unwrap();
 
     for pkg in pkgs {
         let path = &dev.pkgs.get(&pkg).unwrap().path;
@@ -124,11 +119,14 @@ async fn uninstall_packages(pkgs: Vec<String>) -> Result<(), String> {
 }
 
 async fn disable_packages(pkgs: Vec<String>) -> Result<(), String> {
-    let mut dev = loop {
-        if let Ok(dev) = try_get_device() {
-            break dev;
-        }
-    };
+    let mut try_get = DEV.try_get()?;
+    let mut maybe_device = try_get.as_mut();
+    while maybe_device.is_none() {
+        try_get = DEV.try_get()?;
+        maybe_device = try_get.as_mut();
+    }
+
+    let dev = maybe_device.unwrap();
 
     for pkg in pkgs {
         let disable_command = format!("pm disable {pkg}");
@@ -142,11 +140,14 @@ async fn disable_packages(pkgs: Vec<String>) -> Result<(), String> {
 }
 
 async fn revert_packages(pkgs: Vec<String>) -> Result<(), String> {
-    let mut dev = loop {
-        if let Ok(dev) = try_get_device() {
-            break dev;
-        }
-    };
+    let mut try_get = DEV.try_get()?;
+    let mut maybe_device = try_get.as_mut();
+    while maybe_device.is_none() {
+        try_get = DEV.try_get()?;
+        maybe_device = try_get.as_mut();
+    }
+
+    let dev = maybe_device.unwrap();
 
     for pkg in pkgs {
         let revert_command = format!("package install-existing {pkg}");
@@ -173,38 +174,64 @@ async fn revert_packages(pkgs: Vec<String>) -> Result<(), String> {
 
         eprintln!("output: {output:?}");
         if output.contains("Unable to open file") {
-            return Err("failed to revert: please soil your pants, this is uncharted territory".to_string());
+            return Err(
+                "failed to revert: please soil your pants, this is uncharted territory".to_string(),
+            );
         }
     }
     Ok(())
 }
 
-pub struct Device {
+pub struct ZilchDevice {
     device: ADBUSBDevice,
     pkgs: BTreeMap<String, Package>,
 }
 
-pub struct DeviceLock(OnceLock<Mutex<Device>>);
+pub struct DeviceLock {
+    inner: RwLock<Option<ZilchDevice>>,
+}
 
 impl DeviceLock {
     pub fn scan(&self) -> Result<(), String> {
         loop {
             let Ok(device) = ADBUSBDevice::autodetect() else {
+                println!("looking ...");
                 thread::sleep(Duration::from_secs(3));
                 continue;
             };
-            self.0
-                .set(Mutex::new(Device {
-                    device,
-                    pkgs: BTreeMap::default(),
-                }))
-                .map_err(|_| "unable to set global device handle".to_string())?;
+
+            let physical_device = ZilchDevice {
+                device,
+                pkgs: BTreeMap::default(),
+            };
+
+            let mut guard = self
+                .inner
+                .write()
+                .map_err(|_| "failed to get write handle on zilch devicelock".to_string())?;
+            guard.replace(physical_device);
             return Ok(());
         }
     }
+
+    pub fn try_get(
+        &self,
+    ) -> Result<RwLockWriteGuard<'_, std::option::Option<ZilchDevice>>, std::string::String> {
+        let zilch_device = self
+            .inner
+            .try_write()
+            .map_err(|_| "failed to get write handle on zilch devicelock".to_string())?;
+        if zilch_device.is_none() {
+            return Err("device slot is empty".to_string());
+        }
+        Ok(zilch_device)
+    }
 }
 
-static DEV: DeviceLock = DeviceLock(OnceLock::new());
+static DEV: DeviceLock = DeviceLock {
+    inner: RwLock::new(None),
+};
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
