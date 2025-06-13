@@ -20,11 +20,15 @@
         devShells.default = pkgs.mkShell rec {
           libraries = with pkgs; [
             stdenv.cc.cc.lib
-            webkitgtk
             glib
+            webkitgtk_4_1
+            webkitgtk_4_1.dev
+            gobject-introspection
+            gobject-introspection.dev
             dbus
             openssl.dev
             librsvg
+            libsoup_3
           ];
           packages = with pkgs; [
             # rust backend
@@ -33,15 +37,9 @@
             cairo
             gdk-pixbuf
             glib
-            gobject-introspection
-            gobject-introspection.dev
             gtk3
             harfbuzz
-            librsvg
-            libsoup_3
             pango
-            webkitgtk_4_1
-            webkitgtk_4_1.dev
             pkg-config
             # dev tools for frontend
             tailwindcss

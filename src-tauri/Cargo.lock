@@ -128,7 +128,7 @@ checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 [[package]]
 name = "arsc"
 version = "0.1.5"
-source = "git+https://github.com/lavafroth/arsc?branch=Utf8Error#df5f06fa6938431cbf88717decd9b316c33bebeb"
+source = "git+https://github.com/lavafroth/arsc?branch=remove-panics#225ad6f5b8dac53592563fb450f9a78b561a8faa"
 dependencies = [
  "paste",
 ]
