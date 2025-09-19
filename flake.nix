@@ -24,7 +24,6 @@
             webkitgtk_4_1
             webkitgtk_4_1.dev
             gobject-introspection
-            gobject-introspection.dev
             dbus
             openssl.dev
             librsvg
@@ -41,6 +40,7 @@
             harfbuzz
             pango
             pkg-config
+            cargo-tauri
             # dev tools for frontend
             tailwindcss
             vscode-langservers-extracted
