@@ -1,6 +1,10 @@
-use anyhow::Result;
-use axmldecoder::{parse, Node};
 use std::io::{Cursor, Read};
+
+use anyhow::Result;
+use resand::res_value::ResValueType;
+use resand::stream::StreamResult;
+use resand::table::{ResTable, ResTableEntryValue};
+use resand::xmltree::XMLTree;
 use zip::ZipArchive;
 
 pub fn label(contents: &[u8]) -> Result<Option<String>> {
@@ -11,15 +15,15 @@ pub fn label(contents: &[u8]) -> Result<Option<String>> {
         .decompressed_size()
         .is_some_and(|estimated_size| estimated_size > archive_size_limit)
     {
-        return Ok(Some(String::from("No name")));
+        return Ok(Some(String::from("APK too large to decompress")));
     }
 
-    let manifest = {
+    let mut manifest_buffer = vec![];
+    let mut manifest = {
         let entry = "AndroidManifest.xml";
         let mut reader = archive.by_name(entry)?;
-        let mut buffer = vec![];
-        reader.read_to_end(&mut buffer)?;
-        buffer
+        reader.read_to_end(&mut manifest_buffer)?;
+        Cursor::new(manifest_buffer)
         // reader gets auto-dropped
     };
 
@@ -27,60 +31,38 @@ pub fn label(contents: &[u8]) -> Result<Option<String>> {
     let mut reader = archive.by_name(entry)?;
     let mut buffer = vec![];
     reader.read_to_end(&mut buffer)?;
-    let resource = buffer;
+    let mut resource = Cursor::new(buffer);
 
-    let xml_root = parse(&manifest).unwrap();
-    let arsc = arsc::parse_from(Cursor::new(resource))?;
-    Ok(label_extract_resource_id(xml_root, arsc))
+    let Ok(xml) = XMLTree::read(&mut manifest) else {
+        return Ok(None);
+    };
+    let StreamResult::Ok(table) = ResTable::read_all(&mut resource) else {
+        return Ok(None);
+    };
+    let name = get_label(xml, table);
+    Ok(name)
 }
 
-fn as_xml_element(node: &Node) -> Option<&axmldecoder::Element> {
-    let Node::Element(el) = node else { return None };
-    Some(el)
-}
+fn get_label(xml: XMLTree, table: ResTable) -> Option<String> {
+    let application = xml
+        .root
+        .get_elements(&["manifest", "application"], &xml.string_pool)
+        .pop()?;
 
-fn label_extract_resource_id(
-    xml_root: axmldecoder::XmlDocument,
-    arsc: arsc::Arsc,
-) -> Option<String> {
-    let attribute = as_xml_element(xml_root.get_root().as_ref()?)?
-        .get_children()
-        .iter()
-        .find_map(|child| as_xml_element(child)?.get_attributes().get("android:label"))?;
+    let attr = application.get_attribute("label", &xml.string_pool)?;
 
-    let id: usize = attribute
-        .strip_prefix("ResourceValueType::Reference/")
-        .unwrap_or_default()
-        .parse()
-        .ok()?;
-    // let package_id = (id >> 24) & 0xff;
-    let type_id = ((id >> 16) & 0xff) - 1;
-    let index = id & 0xffff;
-    let main_package = arsc.packages.first()?;
-
-    // let verify_type_id = main_package
-    //     .type_names
-    //     .strings
-    //     .iter()
-    //     .position(|s| s == "string")
-    //     .unwrap();
-
-    let configs = main_package
-        .types
-        .get(type_id)?
-        .configs
-        .iter()
-        .find_map(|c| {
-            c.resources
-                .resources
-                .iter()
-                .find(|r| r.spec_id == index)
-                .map(|c| &c.value)
-        })?;
-    let data_index = match configs {
-        arsc::ResourceValue::Plain(p) => p.data_index,
-        arsc::ResourceValue::Bag { parent: _, values } => values.first().unwrap().1.data_index,
+    let ResValueType::Reference(attr) = attr.typed_value.data else {
+        return None;
+    };
+    let package = table.packages.first()?;
+    let entry = package.resolve_ref(attr)?;
+    let ResTableEntryValue::ResValue(value) = &entry.data else {
+        return None;
     };
 
-    arsc.global_string_pool.strings.get(data_index).cloned()
+    let ResValueType::String(spo) = value.data.data else {
+        return None;
+    };
+
+    table.string_pool.resolve(spo).map(ToString::to_string)
 }
