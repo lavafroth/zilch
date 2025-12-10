@@ -2,6 +2,7 @@ const { invoke } = window.__TAURI__.core;
 const { listen, emit } = window.__TAURI__.event;
 const { save } = window.__TAURI__.dialog;
 import { Selection } from './selection.js';
+import { knowledge } from './knowledge.js';
 
 // Thunks that call async Rust routines
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
@@ -220,7 +221,7 @@ listen('packages-updated', (event) => {
 
     // When the node does not exist
     if (!elems.has(pkg.id)) {
-      let node = newRow(pkg.name, pkg.id, "Zombie ipsum actually everyday carry plaid keffiyeh blue bottle wolf quinoa squid four loko glossier kinfolk woke. Plaid cliche cloud bread wolf, etsy humblebrag ennui organic fixie. Tousled sriracha vice VHS. Chillwave vape raw denim aesthetic flannel paleo, austin mixtape lo-fi next level copper mug +1 cred before they sold out. Prism pabst raclette gastropub.")
+      let node = newRow(pkg.name, pkg.id, knowledge[pkg.id]?.description)
       let row = {
         id: pkg.id,
         name: pkg.name,

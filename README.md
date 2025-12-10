@@ -10,18 +10,12 @@ Keep none of 'em, none, nada, zilch.
 
 ### Features
 
-#### Simple yet powerful UI
+#### Simple UI
 
-The UI is somewhat inspired by file managers. Clicking a row will select it as
-well as toggle the collapsed state to display extra information.
-
-Multiple entries can be selected by `Ctrl` clicking them, just like in file
-managers. Alternatively, one can use the multi-select button in the bottom
-action row to achieve the same. You can always cancel a selection by hitting escape.
-
-#### Intuitive keyboard shortcuts
-
-- Press `S` or `/` to jump to the search field. Inspired by [docs.rs](https://docs.rs).
+- Click on app entries to select them and view details.
+- `Ctrl` click or use the multi-select button to select multiple apps.
+- Clear multi-selection by pressing `Escape`.
+- Press `S` or `/` to search apps.
 - Save the current configuration with `Ctrl` + `S` (not yet implemented)
 - Switch categories with `Ctrl` + `Tab` (not yet implemented)
 
@@ -40,11 +34,10 @@ Zilch works with any Android device built on any architecture as long as it can 
 If you accidentally disabled or uninstalled a system app, selecting the package entry will
 display the revert button in the bottom action row. Click it to undo the deletion and restore the app.
 
-### Features not implemented yet
+### Not yet implemented
 
 - [ ] Save button + shortcut
-- [ ] Knowledge base
-- [ ] Recommendation categories
+- [ ] Recommendation categories (WIP)
 - [ ] Make uninstall and disable options depend on Android SDK
 
 ### Build from source
@@ -54,12 +47,3 @@ nix develop
 tailwindcss --output src/styles.css --input src/input.css
 cargo tauri dev
 ```
-
-### How is this associated with Universal Android Debloater?
-
-I plan to import their knowledge-base in the future.
-I have been a contributor to the original repo as well as the now maintained fork.
-
-I started this project because of the following reasons:
-- The current UI written in iced-rs is clunky due to limitations of the library.
-- UAD requires the ADB binary whereas we use our custom implementation of ADB written in pure Rust.
