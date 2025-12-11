@@ -14,6 +14,10 @@ async function listPackages() {
   await invoke("list_packages").catch(handleUsbDisconnect);
 }
 
+async function get_label(id) {
+  await invoke("extract_label", { id: id });
+}
+
 async function uninstallPackages(pkgs) {
   await emit("uninstall", pkgs);
 }
@@ -115,7 +119,7 @@ window.addEventListener("keyup", (event) => {
  * @param {string} description - What the knowledgebase has to say about the package
  */
 function newRow(name, packageId, description) {
-  if (name === null) {
+  if (!name) {
     name = `<div class="w-32 h-4 rounded bg-zinc-400 animate-pulse inline-block"></div>`;
   } else {
     name = `<span class="select-text">${name}</span>`;
@@ -198,6 +202,18 @@ listen('device-ready', (event) => {
   }, 5000)
 });
 
+listen('extracted-name', (event) => {
+    let payload = event.payload
+    let row = elems.get(payload.id)
+    let node = row.node;
+    // the name is not set in the frontend
+    if (!row.name && payload.name !== null) {
+      row.name = payload.name;
+      node.children[0].children[0].replaceWith(generateElements(`<span class="select-text">${payload.name}</span>`)[0]);
+    }
+})
+
+
 listen('packages-updated', (event) => {
   let packages = event.payload;
   let newPkgIds = new Set(packages.map(pkg => pkg.id));
@@ -223,7 +239,11 @@ listen('packages-updated', (event) => {
 
     // When the node does not exist
     if (!elems.has(pkg.id)) {
-      let node = newRow(pkg.name, pkg.id, knowledge[pkg.id]?.description)
+      const name = knowledge[pkg.id]?.name
+      if (!name) {
+        get_label(pkg.id)
+      }
+      let node = newRow(name, pkg.id, knowledge[pkg.id]?.description)
       let row = {
         id: pkg.id,
         name: pkg.name,
@@ -242,13 +262,6 @@ listen('packages-updated', (event) => {
       row.node.classList.remove('striped');
     }
 
-    let row = elems.get(pkg.id)
-    let node = row.node;
-    // the name is not set in the frontend
-    if (row.name === null && pkg.name !== null) {
-      row.name = pkg.name;
-      node.children[0].children[0].replaceWith(generateElements(`<span class="select-text">${pkg.name}</span>`)[0]);
-    }
   }
 
 

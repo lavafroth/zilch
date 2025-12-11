@@ -1,4 +1,4 @@
-export const knowledge = {
+export let knowledge = {
   "com.block.juggle": {
     "list": "Misc",
     "description": "Block Blast. A causal game pre-installed on Xiaomi Poco devices.",
@@ -23106,7 +23106,8 @@ export const knowledge = {
     "neededBy": []
   },
   "com.android.providers.media.module": {
-    "description": "Media picker module\nNot recommended to remove this as it can break apps that use the photo picker.\n",
+    "name": "Media picker module",
+    "description": "Not recommended to remove this as it can break apps that use the photo picker.\n",
     "removal": "Expert",
     "list": "Oem",
     "dependencies": [],

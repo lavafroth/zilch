@@ -11,6 +11,8 @@ use adb_client::ADBDeviceExt;
 use adb_client::ADBUSBDevice;
 use package::Package;
 
+use crate::package::PackageName;
+
 #[tauri::command]
 async fn scan(app: tauri::AppHandle) -> Result<(), String> {
     DEV.scan()?;
@@ -20,70 +22,51 @@ async fn scan(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn list_packages(app: AppHandle) -> Result<(), String> {
-    // Release the device mutex after each operation so that
-    // competing events are not blocked
-    let pkgs = {
-        let mut try_get = DEV.try_get()?;
-        let dev = try_get.as_mut().unwrap();
-        let mut buffer = Vec::with_capacity(4096);
-        dev.device
-            .shell_command(&["pm list packages -f"], &mut buffer)
-            .map_err(|e| e.to_string())?;
-        let pkgs: Vec<_> = Package::many_from(std::str::from_utf8(&buffer).unwrap());
-
-        for pkg in pkgs.iter() {
-            if !dev.pkgs.contains_key(&pkg.id) {
-                dev.pkgs.insert(pkg.id.clone(), pkg.clone());
-            }
-        }
-        app.emit("packages-updated", pkgs.clone())
-            .map_err(|_| "failed to send indexing message to the frontend".to_string())?;
-        pkgs
+async fn extract_label(app: AppHandle, id: String) -> Result<(), String> {
+    let mut zilch_device = DEV
+        .inner
+        .write()
+        .map_err(|_| "failed to get write handle on zilch devicelock".to_string())?;
+    let dev = zilch_device.as_mut().unwrap();
+    let Some(package) = dev.pkgs.get(&id) else {
+        return Err("package not present".into());
     };
+    let mut pulled = Vec::with_capacity(4096);
+    if let Err(e) = dev.device.pull(&package.path, &mut pulled) {
+        return Err(format!("failed to pull apk from device for {}: {e}", id));
+    };
+    let label = match apk::label(&pulled) {
+        Ok(label) => label,
+        Err(e) => return Err(format!("failed to get app label for package: {}: {e}", id)),
+    };
+    app.emit(
+        "extracted-name",
+        PackageName {
+            id: id,
+            name: label,
+        },
+    )
+    .map_err(|_| "failed to send app label to the frontend".to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn list_packages(app: AppHandle) -> Result<(), String> {
+    let mut try_get = DEV.try_get()?;
+    let dev = try_get.as_mut().unwrap();
+    let mut buffer = Vec::with_capacity(4096);
+    dev.device
+        .shell_command(&["pm list packages -f"], &mut buffer)
+        .map_err(|e| e.to_string())?;
+    let pkgs: Vec<_> = Package::many_from(std::str::from_utf8(&buffer).unwrap());
 
     for pkg in pkgs.iter() {
-        let mut try_get = DEV.try_get()?;
-        let dev = try_get.as_mut().unwrap();
-        if dev
-            .pkgs
-            .get(&pkg.id)
-            .expect("package does not exist in package set despite being added previously")
-            .name
-            .is_some()
-        {
-            continue;
+        if !dev.pkgs.contains_key(&pkg.id) {
+            dev.pkgs.insert(pkg.id.clone(), pkg.clone());
         }
-        let mut pulled = Vec::with_capacity(4096);
-        let label = match dev.device.pull(&pkg.path, &mut pulled) {
-            Ok(_) => {
-                let label = match apk::label(&pulled) {
-                    Ok(label) => label,
-                    Err(e) => {
-                        eprintln!("failed to get app label for package: {}: {e}", pkg.id);
-                        None
-                    }
-                };
-                label.unwrap_or("No name".to_string())
-            }
-            Err(e) => {
-                eprintln!("failed to pull apk from device for {}: {e}", pkg.id);
-                "No name".to_string()
-            }
-        };
-        dev.pkgs
-            .get_mut(&pkg.id)
-            .expect("package does not exist in package set despite being added previously")
-            .name
-            .replace(label);
-        app.emit(
-            "packages-updated",
-            pkgs.iter()
-                .map(|pkg| dev.pkgs.get(&pkg.id).unwrap())
-                .collect::<Vec<_>>(),
-        )
-        .map_err(|_| "failed to send updated package list to the frontend".to_string())?;
     }
+    app.emit("packages-updated", pkgs)
+        .map_err(|_| "failed to send indexing message to the frontend".to_string())?;
 
     Ok(())
 }
@@ -101,7 +84,7 @@ async fn uninstall_packages(pkgs: Vec<String>) -> Result<(), String> {
     for pkg in pkgs {
         let path = &dev.pkgs.get(&pkg).unwrap().path;
         if path.is_empty() {
-            eprintln!("oh no! the app has no path for the apk, anyways: proceeding to uninstall");
+            return Err("unable to backup application: refusing to uninstall".into());
         } else {
             let copy_command = format!("cp {path} /data/local/tmp/{pkg}.apk");
             let mut buffer = Vec::with_capacity(256);
@@ -255,7 +238,7 @@ pub fn run() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![scan, list_packages])
+        .invoke_handler(tauri::generate_handler![scan, list_packages, extract_label])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

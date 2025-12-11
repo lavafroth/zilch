@@ -5,6 +5,11 @@ pub struct Package {
     pub id: String,
     #[serde(skip)]
     pub path: String,
+}
+
+#[derive(Serialize, Clone, Deserialize, Debug)]
+pub struct PackageName {
+    pub id: String,
     pub name: Option<String>,
 }
 
@@ -34,12 +39,10 @@ impl Package {
             .map(|line| line.strip_prefix("package:").unwrap_or(line).to_string())
             .map(|line| match line.rsplit_once("=") {
                 Some((path, id)) => Package {
-                    name: None,
                     id: id.to_string(),
                     path: path.to_string(),
                 },
                 None => Package {
-                    name: None,
                     id: line,
                     path: String::default(),
                 },
