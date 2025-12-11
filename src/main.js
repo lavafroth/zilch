@@ -236,28 +236,31 @@ listen('packages-updated', (event) => {
 
   let newPackage = false;
   for (let pkg of packages) {
+    let [id, _path] = pkg;
+      const name = knowledge[id]?.name
+      if (!name) {
+        get_label(id)
+      }
 
     // When the node does not exist
-    if (!elems.has(pkg.id)) {
-      const name = knowledge[pkg.id]?.name
-      if (!name) {
-        get_label(pkg.id)
-      }
-      let node = newRow(name, pkg.id, knowledge[pkg.id]?.description)
+    if (!elems.has(id)) {
+      let node = newRow(name, id, knowledge[id]?.description)
       let row = {
-        id: pkg.id,
-        name: pkg.name,
+        id: id,
+        name: name,
         node: node,
         disabled: false,
       };
 
-      elems.set(pkg.id, row);
+      elems.set(id, row);
       mouseHandler(row);
       newPackage = true;
     } else {
       // it already exists
-      let row = elems.get(pkg.id);
+      let row = elems.get(id);
       row.disabled = false;
+      row.name = name;
+      row.node.name = name;
       // remove the striped background if the app was previously disabled or uninstalled
       row.node.classList.remove('striped');
     }

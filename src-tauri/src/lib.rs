@@ -9,7 +9,6 @@ mod apk;
 mod package;
 use adb_client::ADBDeviceExt;
 use adb_client::ADBUSBDevice;
-use package::Package;
 
 use crate::package::PackageName;
 
@@ -23,16 +22,15 @@ async fn scan(app: tauri::AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 async fn extract_label(app: AppHandle, id: String) -> Result<(), String> {
-    let mut zilch_device = DEV
-        .inner
-        .write()
-        .map_err(|_| "failed to get write handle on zilch devicelock".to_string())?;
-    let dev = zilch_device.as_mut().unwrap();
-    let Some(package) = dev.pkgs.get(&id) else {
-        return Err("package not present".into());
+    let mut try_get = DEV.try_get()?;
+    let dev = try_get.as_mut().unwrap();
+
+    let Some(path) = dev.pkgs.get(&id) else {
+        return Err("package path does not exist".into());
     };
+
     let mut pulled = Vec::with_capacity(4096);
-    if let Err(e) = dev.device.pull(&package.path, &mut pulled) {
+    if let Err(e) = dev.device.pull(&path, &mut pulled) {
         return Err(format!("failed to pull apk from device for {}: {e}", id));
     };
     let label = match apk::label(&pulled) {
@@ -58,11 +56,11 @@ async fn list_packages(app: AppHandle) -> Result<(), String> {
     dev.device
         .shell_command(&["pm list packages -f"], &mut buffer)
         .map_err(|e| e.to_string())?;
-    let pkgs: Vec<_> = Package::many_from(std::str::from_utf8(&buffer).unwrap());
+    let pkgs = package::many_from(std::str::from_utf8(&buffer).unwrap());
 
-    for pkg in pkgs.iter() {
-        if !dev.pkgs.contains_key(&pkg.id) {
-            dev.pkgs.insert(pkg.id.clone(), pkg.clone());
+    for (id, path) in pkgs.iter() {
+        if !dev.pkgs.contains_key(id) {
+            dev.pkgs.insert(id.to_string(), path.to_string());
         }
     }
     app.emit("packages-updated", pkgs)
@@ -72,17 +70,15 @@ async fn list_packages(app: AppHandle) -> Result<(), String> {
 }
 
 async fn uninstall_packages(pkgs: Vec<String>) -> Result<(), String> {
-    let mut try_get = DEV.try_get()?;
-    let mut maybe_device = try_get.as_mut();
-    while maybe_device.is_none() {
-        try_get = DEV.try_get()?;
-        maybe_device = try_get.as_mut();
-    }
+    let mut zilch_device = DEV
+        .inner
+        .write()
+        .map_err(|_| "failed to get write handle on zilch devicelock".to_string())?;
 
-    let dev = maybe_device.unwrap();
+    let dev = zilch_device.as_mut().unwrap();
 
     for pkg in pkgs {
-        let path = &dev.pkgs.get(&pkg).unwrap().path;
+        let path = &dev.pkgs.get(&pkg).unwrap();
         if path.is_empty() {
             return Err("unable to backup application: refusing to uninstall".into());
         } else {
@@ -102,14 +98,12 @@ async fn uninstall_packages(pkgs: Vec<String>) -> Result<(), String> {
 }
 
 async fn disable_packages(pkgs: Vec<String>) -> Result<(), String> {
-    let mut try_get = DEV.try_get()?;
-    let mut maybe_device = try_get.as_mut();
-    while maybe_device.is_none() {
-        try_get = DEV.try_get()?;
-        maybe_device = try_get.as_mut();
-    }
+    let mut zilch_device = DEV
+        .inner
+        .write()
+        .map_err(|_| "failed to get write handle on zilch devicelock".to_string())?;
 
-    let dev = maybe_device.unwrap();
+    let dev = zilch_device.as_mut().unwrap();
 
     for pkg in pkgs {
         let disable_command = format!("pm disable {pkg}");
@@ -123,14 +117,12 @@ async fn disable_packages(pkgs: Vec<String>) -> Result<(), String> {
 }
 
 async fn revert_packages(pkgs: Vec<String>) -> Result<(), String> {
-    let mut try_get = DEV.try_get()?;
-    let mut maybe_device = try_get.as_mut();
-    while maybe_device.is_none() {
-        try_get = DEV.try_get()?;
-        maybe_device = try_get.as_mut();
-    }
+    let mut zilch_device = DEV
+        .inner
+        .write()
+        .map_err(|_| "failed to get write handle on zilch devicelock".to_string())?;
 
-    let dev = maybe_device.unwrap();
+    let dev = zilch_device.as_mut().unwrap();
 
     for pkg in pkgs {
         let revert_command = format!("package install-existing {pkg}");
@@ -167,7 +159,7 @@ async fn revert_packages(pkgs: Vec<String>) -> Result<(), String> {
 
 pub struct ZilchDevice {
     device: ADBUSBDevice,
-    pkgs: BTreeMap<String, Package>,
+    pkgs: BTreeMap<String, String>,
 }
 
 pub struct DeviceLock {
