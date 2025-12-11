@@ -120,6 +120,8 @@ function newRow(name, packageId, description) {
   } else {
     name = `<span class="select-text">${name}</span>`;
   };
+
+  description = description || "<em>Description not available</em>";
   let templ = `<div id="accordion" class="button">
   
     <div>
