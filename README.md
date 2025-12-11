@@ -1,7 +1,7 @@
 # Zilch
 
-A vanilla tauri app to rid Android devices of software bloat.  
-Keep none of 'em, none, nada, zilch.
+Rid Android devices of software bloat.  
+Keep none, nada, zilch.
 
 ![What the app looks like](assets/preview.png)
 
@@ -21,9 +21,9 @@ Keep none of 'em, none, nada, zilch.
 
 #### Extracts app names by parsing APK files on device
 
-It isn't always obvious from the package names like `com.oppo.brjl` what app it correlates to
-in the app drawer. Don't fret, we do the legwork for you. Zilch automatically tries to pull
-the APK files if they exist on the device, parses them and displays their label.
+Correlating package names (`org.company.package`) to app labels
+from the app drawer can be tricky. Zilch automatically parses APK files
+from the device and displays their labels.
 
 #### Architecture independent
 
@@ -31,8 +31,8 @@ Zilch works with any Android device built on any architecture as long as it can 
 
 #### Undo
 
-If you accidentally disabled or uninstalled a system app, selecting the package entry will
-display the revert button in the bottom action row. Click it to undo the deletion and restore the app.
+Apps accidentally disabled or uninstalled via Zilch can be restored using the revert button.
+Zilch will always backup your app before deletion.
 
 ### Not yet implemented
 
