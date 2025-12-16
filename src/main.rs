@@ -3,7 +3,8 @@
 
 use adb_client::ADBUSBDevice;
 use eframe::egui;
-use egui::{Button, Layout, RichText, Sense, TextEdit};
+use egui::{Align, Button, Label, Layout, RichText, Sense, Spinner, TextEdit};
+use egui_alignments::{center_horizontal, column};
 
 fn main() -> eframe::Result {
     // env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
@@ -93,18 +94,23 @@ impl Default for App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let maybe_device = ADBUSBDevice::autodetect();
-        if self.device.is_none() {
-            if let Ok(device) = maybe_device {
-                self.device.replace(device);
-                println!("wow I found a device");
-            } else {
-                println!("looking ...");
-            };
-        }
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ctx.set_pixels_per_point(1.5);
+        ctx.set_pixels_per_point(1.5);
 
+        if self.device.is_none() {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                center_horizontal(ui, |ui| {
+                    column(ui, Align::Center, |ui| {
+                    ui.add(Spinner::new());
+                    ui.add(Label::new("Waiting for a device.\nPlease connect your Android device via USB ensuring\nthat USB debugging is enabled in developer settings."));
+                    });
+                });
+            });
+
+            self.device = ADBUSBDevice::autodetect().ok();
+            return;
+        }
+
+        egui::CentralPanel::default().show(ctx, |ui| {
             ui.take_available_width();
             ui.horizontal(|ui| {
                 ui.take_available_width();

@@ -1122,6 +1122,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "egui_alignments"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "01becb6d7cb509f1fcb5496887e4bad9397e01ac0bb3eb6efa2593d0493ad589"
+dependencies = [
+ "egui",
+]
+
+[[package]]
 name = "egui_extras"
 version = "0.33.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
