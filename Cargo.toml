@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+adb_client = "2.1.18"
 eframe = "0.33.2"
 egui = "0.33.2"
 egui_extras = "0.33.2"
