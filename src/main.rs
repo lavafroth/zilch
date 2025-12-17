@@ -3,7 +3,9 @@
 
 use adb_client::ADBUSBDevice;
 use eframe::egui;
-use egui::{Align, Button, Label, Layout, RichText, Sense, Spinner, TextEdit};
+use egui::{
+    Align, Button, Color32, Label, Layout, RichText, Sense, Spinner, TextEdit, TopBottomPanel,
+};
 use egui_alignments::{center_horizontal, column};
 
 fn main() -> eframe::Result {
@@ -23,12 +25,15 @@ struct App {
     search_query: String,
     entries: Vec<Entry>,
     device: Option<ADBUSBDevice>,
+    uninstallable: bool,
+    reinstallable: bool,
 }
 
 struct Entry {
     id: String,
     label: String,
     expand_triggered: bool,
+    enabled: bool,
     selected: bool,
 }
 
@@ -36,6 +41,8 @@ impl Default for App {
     fn default() -> Self {
         Self {
             device: None,
+            uninstallable: false,
+            reinstallable: false,
             search_query: "".to_owned(),
 
             entries: vec![
@@ -44,48 +51,56 @@ impl Default for App {
                     id: "ping.pong.bell".to_string(),
                     expand_triggered: false,
                     selected: false,
+                    enabled: true,
                 },
                 Entry {
                     label: "Ping Pong game".to_string(),
                     id: "ping.pong.bell".to_string(),
                     expand_triggered: false,
                     selected: false,
+                    enabled: true,
                 },
                 Entry {
                     label: "Ping Pong game".to_string(),
                     id: "ping.pong.bell".to_string(),
                     expand_triggered: false,
                     selected: false,
+                    enabled: false,
                 },
                 Entry {
                     label: "Ping Pong game".to_string(),
                     id: "ping.pong.bell".to_string(),
                     expand_triggered: false,
                     selected: false,
+                    enabled: true,
                 },
                 Entry {
                     label: "Ping Pong game".to_string(),
                     id: "ping.pong.bell".to_string(),
                     expand_triggered: false,
                     selected: false,
+                    enabled: false,
                 },
                 Entry {
                     label: "Ping Pong game".to_string(),
                     id: "ping.pong.bell".to_string(),
                     expand_triggered: false,
                     selected: false,
+                    enabled: true,
                 },
                 Entry {
                     label: "Ping Pong game".to_string(),
                     id: "ping.pong.bell".to_string(),
                     expand_triggered: false,
                     selected: false,
+                    enabled: true,
                 },
                 Entry {
                     label: "Ding Dong game".to_string(),
                     id: "ding.dong.bell".to_string(),
                     expand_triggered: false,
                     selected: false,
+                    enabled: true,
                 },
             ],
         }
@@ -96,7 +111,9 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.set_pixels_per_point(1.5);
 
-        if self.device.is_none() {
+        let debug = true;
+        // let debug = false;
+        if !debug && self.device.is_none() {
             egui::CentralPanel::default().show(ctx, |ui| {
                 center_horizontal(ui, |ui| {
                     column(ui, Align::Center, |ui| {
@@ -122,11 +139,56 @@ impl eframe::App for App {
 
             ui.separator();
             egui::ScrollArea::vertical().show(ui, |ui| {
+                self.uninstallable = false;
+                self.reinstallable = false;
                 for (i, entry) in self.entries.iter_mut().enumerate() {
                     render_entry(ui, entry, i);
+                    if !entry.selected {
+                        continue;
+                    }
+                    if entry.enabled {
+                        self.uninstallable = true;
+                    } else {
+                        self.reinstallable = true;
+                    }
                 }
             });
         });
+        TopBottomPanel::bottom("action_bar").show(ctx, |ui| {
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                if self.uninstallable && self.reinstallable {
+                    ui.add_enabled(false, Button::new("uninstall"));
+                    ui.add_enabled(false, Button::new("disable"));
+                } else if self.uninstallable {
+                    ui.add_enabled(true, Button::new("uninstall"));
+                    ui.add_enabled(true, Button::new("disable"));
+                } else if self.reinstallable {
+                    ui.add_enabled(true, Button::new("revert"));
+                    ui.add_enabled(false, Button::new("disable"));
+                } else {
+                    ui.add_enabled(false, Button::new("uninstall"));
+                    ui.add_enabled(false, Button::new("disable"));
+                }
+            });
+            ui.add_space(2.0);
+        });
+    }
+}
+
+fn create_button(entry: &'_ Entry) -> Button<'_> {
+    let label = RichText::new(&entry.label).size(12.0);
+    let package_id = RichText::new(&entry.id).monospace().size(10.0);
+    let disabled_text_color = Color32::from_rgb(100, 100, 100);
+    if entry.enabled {
+        Button::selectable(entry.selected, label).right_text(package_id)
+    } else {
+        Button::selectable(
+            entry.selected,
+            label.strikethrough().color(disabled_text_color),
+        )
+        .fill(Color32::from_rgb(60, 60, 60))
+        .right_text(package_id.strikethrough().color(disabled_text_color))
     }
 }
 
@@ -142,10 +204,7 @@ fn render_entry(ui: &mut egui::Ui, entry: &mut Entry, index: usize) {
     state
         .show_header(ui, |ui| {
             ui.with_layout(Layout::top_down_justified(egui::Align::LEFT), |ui| {
-                let response = ui.add(
-                    Button::selectable(entry.selected, RichText::new(&entry.label).size(12.0))
-                        .right_text(RichText::new(&entry.id).monospace().size(10.0)),
-                );
+                let response = ui.add(create_button(&entry));
                 let id = ui.make_persistent_id(format!("{}_interact", index));
                 if ui
                     .interact(response.rect, id, Sense::click())
@@ -158,5 +217,9 @@ fn render_entry(ui: &mut egui::Ui, entry: &mut Entry, index: usize) {
                 }
             });
         })
-        .body(|ui| ui.label("ping pong"));
+        .body(|ui| {
+            ui.add_space(4.0);
+            ui.label(RichText::new("a very long description that only the real arch wiki level nerds will bother to read lol.").size(12.0));
+            ui.add_space(4.0);
+        });
 }
