@@ -1,12 +1,21 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
 
-use adb_client::ADBUSBDevice;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::mpsc::{Receiver, channel},
+    thread::{self, sleep},
+    time::Duration,
+};
+
+use adb_client::{ADBDeviceExt, ADBUSBDevice};
 use eframe::egui;
 use egui::{
     Align, Button, Color32, Label, Layout, RichText, Sense, Spinner, TextEdit, TopBottomPanel,
 };
 use egui_alignments::{center_horizontal, column};
+
+const WORKER_THREAD_POLL: Duration = Duration::from_secs(5);
 
 fn main() -> eframe::Result {
     // env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
@@ -17,16 +26,78 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "My egui App",
         options,
-        Box::new(|_| Ok(Box::<App>::default())),
+        Box::new(|cc| {
+            let (package_diff_tx, package_diff_rx) = channel();
+            let (device_lost_tx, device_lost_rx) = channel();
+
+            let ctx = cc.egui_ctx.clone();
+            std::thread::spawn(move || {
+                let mut device: Option<ADBUSBDevice> = None;
+                let mut pkg_set: BTreeSet<String> = Default::default();
+
+                loop {
+                    while device.is_none() {
+                        device = ADBUSBDevice::autodetect().ok();
+
+                        sleep(WORKER_THREAD_POLL);
+                    }
+
+                    while let Some(device_mut) = device.as_mut() {
+                        eprintln!("trying");
+
+                        match fetch_packages(device_mut, &pkg_set) {
+                            Ok((diff, new_pkg_set)) => {
+                                if diff.added.is_empty() && diff.removed.is_empty() {
+                                    // sleep(WORKER_THREAD_POLL);
+                                    continue;
+                                }
+                                pkg_set = new_pkg_set;
+                                package_diff_tx.send(diff).expect("failed to send to ui");
+                            }
+                            Err(e) => {
+                                device = None;
+                                pkg_set = BTreeSet::default();
+                                device_lost_tx.send(e).expect("failed to send to ui");
+                            }
+                        }
+                        ctx.request_repaint();
+
+                        // sleep(WORKER_THREAD_POLL);
+                    }
+                }
+            });
+
+            Ok(Box::new(App {
+                have_device: false,
+                uninstallable: false,
+                reinstallable: false,
+                search_query: "".to_owned(),
+                device_lost_rx,
+                package_diff_rx,
+                entries: Default::default(),
+            }))
+        }),
     )
 }
 
+type FrontendPayload = PackageDiff;
+
 struct App {
     search_query: String,
-    entries: Vec<Entry>,
-    device: Option<ADBUSBDevice>,
     uninstallable: bool,
     reinstallable: bool,
+    entries: BTreeMap<String, Entry>,
+    package_diff_rx: Receiver<FrontendPayload>,
+    device_lost_rx: Receiver<String>,
+
+    have_device: bool,
+}
+
+#[derive(Clone)]
+struct Package {
+    id: String,
+    path: String,
+    label: String,
 }
 
 struct Entry {
@@ -37,83 +108,38 @@ struct Entry {
     selected: bool,
 }
 
-impl Default for App {
-    fn default() -> Self {
-        Self {
-            device: None,
-            uninstallable: false,
-            reinstallable: false,
-            search_query: "".to_owned(),
-
-            entries: vec![
-                Entry {
-                    label: "Ping Pong game".to_string(),
-                    id: "ping.pong.bell".to_string(),
-                    expand_triggered: false,
-                    selected: false,
-                    enabled: true,
-                },
-                Entry {
-                    label: "Ping Pong game".to_string(),
-                    id: "ping.pong.bell".to_string(),
-                    expand_triggered: false,
-                    selected: false,
-                    enabled: true,
-                },
-                Entry {
-                    label: "Ping Pong game".to_string(),
-                    id: "ping.pong.bell".to_string(),
-                    expand_triggered: false,
-                    selected: false,
-                    enabled: false,
-                },
-                Entry {
-                    label: "Ping Pong game".to_string(),
-                    id: "ping.pong.bell".to_string(),
-                    expand_triggered: false,
-                    selected: false,
-                    enabled: true,
-                },
-                Entry {
-                    label: "Ping Pong game".to_string(),
-                    id: "ping.pong.bell".to_string(),
-                    expand_triggered: false,
-                    selected: false,
-                    enabled: false,
-                },
-                Entry {
-                    label: "Ping Pong game".to_string(),
-                    id: "ping.pong.bell".to_string(),
-                    expand_triggered: false,
-                    selected: false,
-                    enabled: true,
-                },
-                Entry {
-                    label: "Ping Pong game".to_string(),
-                    id: "ping.pong.bell".to_string(),
-                    expand_triggered: false,
-                    selected: false,
-                    enabled: true,
-                },
-                Entry {
-                    label: "Ding Dong game".to_string(),
-                    id: "ding.dong.bell".to_string(),
-                    expand_triggered: false,
-                    selected: false,
-                    enabled: true,
-                },
-            ],
-        }
-    }
-}
-
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.set_pixels_per_point(1.5);
+        if let Ok(package_diff) = self.package_diff_rx.try_recv() {
+            self.have_device = true;
 
-        let debug = true;
-        // let debug = false;
-        if !debug && self.device.is_none() {
+            for package in package_diff.added {
+                self.entries.insert(
+                    package.id.clone(),
+                    Entry {
+                        id: package.id,
+                        label: package.label,
+                        expand_triggered: false,
+                        enabled: true,
+                        selected: false,
+                    },
+                );
+            }
+
+            for package_id in package_diff.removed {
+                if let Some(entry) = self.entries.get_mut(&package_id) {
+                    entry.enabled = false;
+                };
+            }
+        }
+
+        if let Ok(device_lost_reason) = self.device_lost_rx.try_recv() {
+            self.have_device = false;
+            println!("device lost: {device_lost_reason}");
+        }
+
+        if !self.have_device {
             egui::CentralPanel::default().show(ctx, |ui| {
                 center_horizontal(ui, |ui| {
                     column(ui, Align::Center, |ui| {
@@ -122,10 +148,8 @@ impl eframe::App for App {
                     });
                 });
             });
-
-            self.device = ADBUSBDevice::autodetect().ok();
             return;
-        }
+        };
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.take_available_width();
@@ -141,8 +165,8 @@ impl eframe::App for App {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 self.uninstallable = false;
                 self.reinstallable = false;
-                for (i, entry) in self.entries.iter_mut().enumerate() {
-                    render_entry(ui, entry, i);
+                for (_id, entry) in self.entries.iter_mut() {
+                    render_entry(ui, entry);
                     if !entry.selected {
                         continue;
                     }
@@ -176,6 +200,53 @@ impl eframe::App for App {
     }
 }
 
+struct PackageDiff {
+    added: Vec<Package>,
+    removed: Vec<String>,
+}
+
+fn fetch_packages(
+    device: &mut ADBUSBDevice,
+    pkg_set: &BTreeSet<String>,
+) -> Result<(PackageDiff, BTreeSet<String>), String> {
+    let mut buffer = vec![];
+    device
+        .shell_command(&["pm list packages -f"], &mut buffer)
+        .map_err(|e| e.to_string())?;
+
+    let raw_pkg_text = std::str::from_utf8(&buffer)
+        .map_err(|e| format!("failed to parse output of `pm list packages -f` {e}"))?;
+
+    let mut current_set = BTreeSet::new();
+
+    let mut new_packages = vec![];
+    for line in raw_pkg_text.lines() {
+        let stripped = line.strip_prefix("package:").unwrap_or(line);
+        let (path, id) = stripped.rsplit_once("=").unwrap_or((line, ""));
+        current_set.insert(id.to_string());
+
+        if !pkg_set.contains(id) {
+            let package = Package {
+                path: path.to_string(),
+                id: id.to_string(),
+                label: String::default(),
+            };
+
+            new_packages.push(package);
+        }
+    }
+
+    let removed = pkg_set.difference(&current_set).cloned().collect();
+
+    Ok((
+        PackageDiff {
+            added: new_packages,
+            removed,
+        },
+        current_set,
+    ))
+}
+
 fn create_button(entry: &'_ Entry) -> Button<'_> {
     let label = RichText::new(&entry.label).size(12.0);
     let package_id = RichText::new(&entry.id).monospace().size(10.0);
@@ -192,8 +263,8 @@ fn create_button(entry: &'_ Entry) -> Button<'_> {
     }
 }
 
-fn render_entry(ui: &mut egui::Ui, entry: &mut Entry, index: usize) {
-    let id = ui.make_persistent_id(format!("{}_state", index));
+fn render_entry(ui: &mut egui::Ui, entry: &mut Entry) {
+    let id = ui.make_persistent_id(format!("{}_state", entry.id));
     let mut state =
         egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false);
 
@@ -204,8 +275,8 @@ fn render_entry(ui: &mut egui::Ui, entry: &mut Entry, index: usize) {
     state
         .show_header(ui, |ui| {
             ui.with_layout(Layout::top_down_justified(egui::Align::LEFT), |ui| {
-                let response = ui.add(create_button(&entry));
-                let id = ui.make_persistent_id(format!("{}_interact", index));
+                let response = ui.add(create_button(entry));
+                let id = ui.make_persistent_id(format!("{}_interact", entry.id));
                 if ui
                     .interact(response.rect, id, Sense::click())
                     .double_clicked()
