@@ -18,7 +18,7 @@ use egui_alignments::{center_horizontal, column};
 const WORKER_THREAD_POLL: Duration = Duration::from_secs(5);
 
 fn main() -> eframe::Result {
-    // env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
+    env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([800.0, 300.0]),
         ..Default::default()
@@ -43,12 +43,11 @@ fn main() -> eframe::Result {
                     }
 
                     while let Some(device_mut) = device.as_mut() {
-                        eprintln!("trying");
 
                         match fetch_packages(device_mut, &pkg_set) {
                             Ok((diff, new_pkg_set)) => {
                                 if diff.added.is_empty() && diff.removed.is_empty() {
-                                    // sleep(WORKER_THREAD_POLL);
+                                    sleep(WORKER_THREAD_POLL);
                                     continue;
                                 }
                                 pkg_set = new_pkg_set;
@@ -62,7 +61,7 @@ fn main() -> eframe::Result {
                         }
                         ctx.request_repaint();
 
-                        // sleep(WORKER_THREAD_POLL);
+                        sleep(WORKER_THREAD_POLL);
                     }
                 }
             });
@@ -210,9 +209,21 @@ fn fetch_packages(
     pkg_set: &BTreeSet<String>,
 ) -> Result<(PackageDiff, BTreeSet<String>), String> {
     let mut buffer = vec![];
-    device
-        .shell_command(&["pm list packages -f"], &mut buffer)
-        .map_err(|e| e.to_string())?;
+    match device.shell_command(&["pm list packages -f"], &mut buffer) {
+        Ok(_) => {}
+        Err(adb_client::RustADBError::UsbError(rusb::Error::Timeout)) => {
+            return Ok((
+                PackageDiff {
+                    added: vec![],
+                    removed: vec![],
+                },
+                pkg_set.clone(),
+            ));
+        }
+        Err(e) => {
+            return Err(e.to_string());
+        }
+    };
 
     let raw_pkg_text = std::str::from_utf8(&buffer)
         .map_err(|e| format!("failed to parse output of `pm list packages -f` {e}"))?;
