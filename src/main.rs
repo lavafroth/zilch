@@ -2,9 +2,9 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    io::{BufReader, Write},
-    sync::mpsc::{Receiver, channel},
-    thread::sleep,
+    io::BufReader,
+    sync::mpsc::{Receiver, Sender, channel},
+    thread::{sleep, spawn},
     time::Duration,
 };
 
@@ -17,6 +17,60 @@ use egui::{
 use egui_alignments::{center_horizontal, column};
 
 const WORKER_THREAD_POLL: Duration = Duration::from_secs(5);
+const LABEL_EXTRACTOR: &[u8; 2124] = include_bytes!("./extractor.dex");
+
+type FrontendPayload = PackageDiff;
+
+struct App {
+    search_query: String,
+    uninstallable: bool,
+    reinstallable: bool,
+    entries: BTreeMap<String, Entry>,
+    package_diff_rx: Receiver<FrontendPayload>,
+    device_lost_rx: Receiver<()>,
+    action_tx: Sender<Action>,
+    disable_mode: bool,
+
+    have_device: bool,
+}
+
+type PackageIdentifier = String;
+type PackagePath = String;
+
+#[derive(Clone)]
+pub struct Package {
+    id: PackageIdentifier,
+    path: PackagePath,
+    label: String,
+}
+
+struct Entry {
+    package: Package,
+    expand_triggered: bool,
+    enabled: bool,
+    selected: bool,
+}
+
+struct PackageDiff {
+    added: Vec<Package>,
+    removed: Vec<PackageIdentifier>,
+}
+
+#[derive(Debug)]
+pub enum ShellRunError {
+    Timeout,
+    ParseError,
+    Unrecoverable,
+    UnsuccessfulOperation(PackageIdentifier),
+    BackupNotPossible(PackageIdentifier),
+    RevertFailed(PackageIdentifier),
+}
+
+pub enum Action {
+    Uninstall(Package),
+    Revert(PackageIdentifier),
+    Disable(PackageIdentifier),
+}
 
 fn main() -> eframe::Result {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
@@ -25,58 +79,18 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
     eframe::run_native(
-        "My egui App",
+        "Zilch",
         options,
         Box::new(|cc| {
             let (package_diff_tx, package_diff_rx) = channel();
             let (device_lost_tx, device_lost_rx) = channel();
+            let (action_tx, action_rx) = channel();
 
             let ctx = cc.egui_ctx.clone();
-            std::thread::spawn(move || {
-                let mut device: Option<ADBUSBDevice> = None;
-                let mut pkg_set: BTreeSet<String> = Default::default();
-
-                loop {
-                    while device.is_none() {
-                        device = ADBUSBDevice::autodetect().ok();
-
-                        sleep(WORKER_THREAD_POLL);
-                    }
-
-                    if let Some(device_mut) = device.as_mut() {
-                        let mut label_extractor_dex_stream = BufReader::new(&LABEL_EXTRACTOR[..]);
-                        let remote_path = "/data/local/tmp/extractor.dex";
-                        device_mut
-                            .push(&mut label_extractor_dex_stream, &remote_path)
-                            .expect("failed to upload extractor to the device");
-                    }
-
-                    while let Some(device_mut) = device.as_mut() {
-                        match fetch_packages(device_mut, &pkg_set) {
-                            Ok((diff, new_pkg_set)) => {
-                                if diff.added.is_empty() && diff.removed.is_empty() {
-                                    sleep(WORKER_THREAD_POLL);
-                                    continue;
-                                }
-                                pkg_set = new_pkg_set;
-                                package_diff_tx.send(diff).expect("failed to send to ui");
-                            }
-                            Err(FetchPackageError::Timeout) => {}
-                            Err(_log_this_later) => {
-                                device = None;
-                                pkg_set = BTreeSet::default();
-                                device_lost_tx.send(()).expect("failed to send to ui");
-                            }
-                        }
-                        ctx.request_repaint();
-
-                        sleep(WORKER_THREAD_POLL);
-                    }
-                }
-            });
+            spawn(move || worker_thread(package_diff_tx, device_lost_tx, action_rx, ctx));
 
             Ok(Box::new(App {
-                n_selected: 0,
+                // n_selected: 0,
                 disable_mode: false,
                 have_device: false,
                 uninstallable: false,
@@ -85,39 +99,120 @@ fn main() -> eframe::Result {
                 device_lost_rx,
                 package_diff_rx,
                 entries: Default::default(),
+                action_tx,
             }))
         }),
     )
 }
 
-type FrontendPayload = PackageDiff;
+impl Action {
+    fn apply_on_device(self, device: &mut ADBUSBDevice) -> Result<(), ShellRunError> {
+        match self {
+            Action::Uninstall(pkg) => {
+                if pkg.path.is_empty() {
+                    return Err(ShellRunError::BackupNotPossible(pkg.id));
+                }
 
-struct App {
-    search_query: String,
-    uninstallable: bool,
-    reinstallable: bool,
-    n_selected: usize,
-    entries: BTreeMap<String, Entry>,
-    package_diff_rx: Receiver<FrontendPayload>,
-    device_lost_rx: Receiver<()>,
-    disable_mode: bool,
+                let _copy_command_no_output = device.shell_command_text(&format!(
+                    "cp {} /data/local/tmp/{}.apk",
+                    pkg.path, pkg.id
+                ))?;
 
-    have_device: bool,
+                let output =
+                    device.shell_command_text(&format!("pm uninstall --user 0 -k {}", pkg.id))?;
+
+                if !output.contains("Success") {
+                    return Err(ShellRunError::UnsuccessfulOperation(pkg.id));
+                }
+            }
+            Action::Revert(id) => {
+                let revert_command = format!("package install-existing {id}");
+                let output = device.shell_command_text(&revert_command)?;
+                // eprintln!("revert output {output:?}");
+
+                if !output.contains("inaccessible or not found") {
+                    return Ok(());
+                }
+
+                let revert_command = format!("pm install -r --user 0 /data/local/tmp/{id}.apk");
+                let output = device.shell_command_text(&revert_command)?;
+                if !output.contains("Success") {
+                    return Err(ShellRunError::RevertFailed(id));
+                }
+            }
+            Action::Disable(id) => {
+                let disable_command = format!("pm disable --user 0 {id}");
+                let output = device.shell_command_text(&disable_command)?;
+                eprintln!("disable output {output:?}");
+
+                // for id in items {
+                //     let output =
+                //         device.shell_command_text(&format!("pm uninstall --user 0 -k {id}"))?;
+
+                //     if !output.contains("Success") {
+                //         return Err(ShellRunError::UnsuccessfulOperation(id));
+                //     }
+                // }
+            }
+        }
+        Ok(())
+    }
 }
 
-#[derive(Clone)]
-struct Package {
-    id: String,
-    path: String,
-    label: String,
-}
+fn worker_thread(
+    package_diff_tx: Sender<PackageDiff>,
+    device_lost_tx: Sender<()>,
+    action_rx: Receiver<Action>,
+    ctx: egui::Context,
+) {
+    let mut maybe_device: Option<ADBUSBDevice> = None;
+    let mut pkg_set: BTreeSet<PackageIdentifier> = Default::default();
 
-struct Entry {
-    id: String,
-    label: String,
-    expand_triggered: bool,
-    enabled: bool,
-    selected: bool,
+    loop {
+        while maybe_device.is_none() {
+            maybe_device = ADBUSBDevice::autodetect().ok();
+            if maybe_device.is_none() {
+                sleep(WORKER_THREAD_POLL);
+            } else {
+                eprintln!("watermelon");
+            }
+        }
+
+        if let Some(device) = maybe_device.as_mut() {
+            eprintln!("cocomelon");
+            let mut label_extractor_dex_stream = BufReader::new(&LABEL_EXTRACTOR[..]);
+            let remote_path = "/data/local/tmp/extractor.dex";
+            device
+                .push(&mut label_extractor_dex_stream, &remote_path)
+                .expect("failed to upload extractor to the device");
+            eprintln!("pushed");
+        }
+
+        while let Some(device) = maybe_device.as_mut() {
+            if let Ok(action) = action_rx.try_recv() {
+                action.apply_on_device(device);
+            }
+            match fetch_packages(device, &pkg_set) {
+                Ok((diff, new_pkg_set)) => {
+                    if diff.added.is_empty() && diff.removed.is_empty() {
+                        sleep(WORKER_THREAD_POLL);
+                        continue;
+                    }
+                    pkg_set = new_pkg_set;
+                    package_diff_tx.send(diff).expect("failed to send to ui");
+                }
+                Err(ShellRunError::Timeout) => {}
+                Err(_log_this_later) => {
+                    maybe_device = None;
+                    pkg_set = BTreeSet::default();
+                    device_lost_tx.send(()).expect("failed to send to ui");
+                }
+            }
+            ctx.request_repaint();
+
+            sleep(WORKER_THREAD_POLL);
+        }
+    }
 }
 
 impl eframe::App for App {
@@ -130,8 +225,7 @@ impl eframe::App for App {
                 self.entries.insert(
                     package.id.clone(),
                     Entry {
-                        id: package.id,
-                        label: package.label,
+                        package,
                         expand_triggered: false,
                         enabled: true,
                         selected: false,
@@ -177,19 +271,13 @@ impl eframe::App for App {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 self.uninstallable = false;
                 self.reinstallable = false;
-                self.n_selected = 0;
 
-                for (_id, entry) in self.entries.iter_mut() {
-                    render_entry(ui, entry);
-                    if !entry.selected {
-                        continue;
-                    }
-
-                    self.n_selected += 1;
-                    if entry.enabled {
-                        self.uninstallable = true;
-                    } else {
-                        self.reinstallable = true;
+                for (id, entry) in self.entries.iter_mut() {
+                    let query_lower = self.search_query.to_lowercase();
+                    if id.to_lowercase().contains(&query_lower)
+                        || entry.package.label.to_lowercase().contains(&query_lower)
+                    {
+                        render_entry(ui, entry);
                     }
                 }
             });
@@ -209,20 +297,62 @@ impl eframe::App for App {
                 Button::new("uninstall")
             };
 
+            let mut selected: Vec<&Entry> = vec![];
+            for entry in self.entries.values().filter(|entry| entry.selected) {
+                selected.push(entry);
+                if entry.enabled {
+                    self.uninstallable = true;
+                } else {
+                    self.reinstallable = true;
+                }
+            }
+
             ui.horizontal(|ui| {
+                let button_size = [80.0, 30.0];
+
                 if self.uninstallable == self.reinstallable {
-                    ui.add_enabled(false, button);
+                    ui.add_enabled_ui(false, |ui| {
+                        ui.add_sized(button_size, button);
+                    });
                 } else if self.uninstallable {
-                    ui.add_enabled(true, button);
+                    ui.add_enabled_ui(true, |ui| {
+                        if !ui.add_sized(button_size, button).clicked() {
+                            return;
+                        }
+
+                        if self.disable_mode {
+                            for entry in selected.iter() {
+                                self.action_tx
+                                    .send(Action::Disable(entry.package.id.clone()))
+                                    .expect("failed to send message to backend");
+                            }
+
+                            return;
+                        }
+
+                        for entry in selected.iter() {
+                            self.action_tx
+                                .send(Action::Uninstall(entry.package.clone()))
+                                .expect("failed to send message to backend");
+                        }
+                    });
                 } else if self.reinstallable {
-                    ui.add_enabled(true, Button::new("revert"));
+                    ui.add_enabled_ui(true, |ui| {
+                        if ui.add_sized(button_size, Button::new("revert")).clicked() {
+                            for entry in selected.iter() {
+                                self.action_tx
+                                    .send(Action::Revert(entry.package.id.clone()))
+                                    .expect("failed to send message to backend");
+                            }
+                        }
+                    });
                 }
 
                 ui.checkbox(&mut self.disable_mode, "disable mode")
                     .on_hover_text("prefer disabling apps to uninstalling");
 
                 ui.separator();
-                ui.label(format!("{} selected", self.n_selected));
+                ui.label(format!("{} selected", selected.len()));
                 ui.separator();
             });
             ui.add_space(2.0);
@@ -230,47 +360,28 @@ impl eframe::App for App {
     }
 }
 
-const LABEL_EXTRACTOR: &[u8; 2124] = include_bytes!("./extractor.dex");
-
-struct PackageDiff {
-    added: Vec<Package>,
-    removed: Vec<String>,
-}
-
-pub enum FetchPackageError {
-    Timeout,
-    ParseError,
-    Unrecoverable,
-}
-
 pub trait ShellCommandExt {
-    fn shell_command_ext(
-        &mut self,
-        command: &str,
-        buf: &mut dyn Write,
-    ) -> Result<(), FetchPackageError>;
+    fn shell_command_text(&mut self, command: &str) -> Result<String, ShellRunError>;
 }
 
 impl ShellCommandExt for ADBUSBDevice {
-    fn shell_command_ext(
-        &mut self,
-        command: &str,
-        buf: &mut dyn Write,
-    ) -> Result<(), FetchPackageError> {
-        self.shell_command(&[command], buf).map_err(|e| match e {
-            adb_client::RustADBError::UsbError(rusb::Error::Timeout) => FetchPackageError::Timeout,
-            _ => FetchPackageError::Unrecoverable,
-        })
+    fn shell_command_text(&mut self, command: &str) -> Result<String, ShellRunError> {
+        let mut buf = Vec::with_capacity(4096);
+        self.shell_command(&[command], &mut buf)
+            .map_err(|e| match e {
+                adb_client::RustADBError::UsbError(rusb::Error::Timeout) => ShellRunError::Timeout,
+                _ => ShellRunError::Unrecoverable,
+            })?;
+        String::from_utf8(buf).map_err(|_| ShellRunError::ParseError)
     }
 }
 
 fn fetch_packages(
     device: &mut ADBUSBDevice,
     pkg_set: &BTreeSet<String>,
-) -> Result<(PackageDiff, BTreeSet<String>), FetchPackageError> {
-    let mut buffer = Vec::with_capacity(1024);
-    device.shell_command_ext("pm list packages -f", &mut buffer)?;
-    let raw_pkg_text = std::str::from_utf8(&buffer).map_err(|_| FetchPackageError::ParseError)?;
+) -> Result<(PackageDiff, BTreeSet<String>), ShellRunError> {
+    let raw_pkg_text = device.shell_command_text("pm list packages -f")?;
+    eprintln!("fucky fucky?");
 
     let mut current_set = BTreeSet::new();
 
@@ -295,13 +406,9 @@ fn fetch_packages(
 
     let need_to_fetch_labels = !new_packages.is_empty();
     if need_to_fetch_labels {
-        let mut buffer = Vec::with_capacity(1024);
-        device.shell_command_ext(
-            "CLASSPATH=/data/local/tmp/extractor.dex app_process / Main",
-            &mut buffer,
-        )?;
-        let raw_pkg_text =
-            std::str::from_utf8(&buffer).map_err(|_| FetchPackageError::ParseError)?;
+        let raw_pkg_text = device
+            .shell_command_text("CLASSPATH=/data/local/tmp/extractor.dex app_process / Main")?;
+        eprintln!("sucky sucky?");
 
         for line in raw_pkg_text.lines() {
             let mut splitn = line.splitn(3, ' ');
@@ -313,7 +420,6 @@ fn fetch_packages(
             if let Some(package_mut) = new_packages.get_mut(id) {
                 package_mut.label = label.to_string();
             }
-            // eprintln!("{line}");
         }
     }
 
@@ -328,8 +434,8 @@ fn fetch_packages(
 
 fn create_button(entry: &'_ Entry) -> Button<'_> {
     let mut job = LayoutJob::default();
-    let mut label = RichText::new(format!("{}\n", entry.label)).size(12.0);
-    let mut package_id = RichText::new(&entry.id).monospace().size(10.0);
+    let mut label = RichText::new(format!("{}\n", entry.package.label)).size(12.0);
+    let mut package_id = RichText::new(&entry.package.id).monospace().size(10.0);
     let disabled_text_color = Color32::from_rgb(100, 100, 100);
 
     if !entry.enabled {
@@ -358,7 +464,7 @@ fn create_button(entry: &'_ Entry) -> Button<'_> {
 }
 
 fn render_entry(ui: &mut egui::Ui, entry: &mut Entry) {
-    let id = ui.make_persistent_id(format!("{}_state", entry.id));
+    let id = ui.make_persistent_id(format!("{}_state", entry.package.id));
     let mut state =
         egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false);
 
@@ -371,7 +477,7 @@ fn render_entry(ui: &mut egui::Ui, entry: &mut Entry) {
         ui.style_mut().spacing.button_padding = egui::vec2(20.0, 10.0);
         ui.with_layout(Layout::top_down_justified(egui::Align::LEFT), |ui| {
             let response = ui.add(create_button(entry));
-            let id = ui.make_persistent_id(format!("{}_interact", entry.id));
+            let id = ui.make_persistent_id(format!("{}_interact", entry.package.id));
             if ui
                 .interact(response.rect, id, Sense::click())
                 .double_clicked()
