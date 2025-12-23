@@ -15,6 +15,7 @@ use egui::{
     TopBottomPanel, text::LayoutJob,
 };
 use egui_alignments::{center_horizontal, column};
+use serde::Deserialize;
 
 const WORKER_THREAD_POLL: Duration = Duration::from_secs(5);
 const LABEL_EXTRACTOR: &[u8; 2124] = include_bytes!("./extractor.dex");
@@ -36,6 +37,7 @@ struct App {
 
     have_device: bool,
     busy: bool,
+    metadata: BTreeMap<String, Metadata>,
 }
 
 type PackageIdentifier = String;
@@ -53,6 +55,7 @@ struct Entry {
     expand_triggered: bool,
     enabled: bool,
     selected: bool,
+    description: String,
 }
 
 struct PackageDiff {
@@ -68,6 +71,13 @@ pub enum ShellRunError {
     UnsuccessfulOperation(PackageIdentifier),
     BackupNotPossible(PackageIdentifier),
     RevertFailed(PackageIdentifier),
+}
+
+#[derive(Deserialize)]
+pub struct Metadata {
+    // list: String,
+    description: String,
+    removal: String,
 }
 
 mod categories {
@@ -99,6 +109,9 @@ fn main() -> eframe::Result {
         viewport: egui::ViewportBuilder::default().with_inner_size([800.0, 300.0]),
         ..Default::default()
     };
+
+    let metadata: BTreeMap<String, Metadata> = serde_json::from_str(include_str!("metadata.json"))
+        .map_err(|e| eframe::Error::AppCreation(Box::new(e)))?;
     eframe::run_native(
         "Zilch",
         options,
@@ -132,6 +145,7 @@ fn main() -> eframe::Result {
                 action_tx,
                 categories: categories::RECOMMENDED,
                 action_done_rx,
+                metadata,
             }))
         }),
     )
@@ -213,6 +227,7 @@ fn worker_thread(
                 action.apply_on_device(device);
             }
 
+            action_done_tx.send(()).expect("failed to send to ui");
             match fetch_packages(device, &pkg_set) {
                 Ok((diff, new_pkg_set)) => {
                     if diff.added.is_empty() && diff.removed.is_empty() {
@@ -229,7 +244,6 @@ fn worker_thread(
                     device_lost_tx.send(()).expect("failed to send to ui");
                 }
             }
-            action_done_tx.send(()).expect("failed to send to ui");
             ctx.request_repaint();
 
             sleep(WORKER_THREAD_POLL);
@@ -248,10 +262,14 @@ impl eframe::App for App {
             self.have_device = true;
 
             for package in package_diff.added {
+                let maybe_meta = self.metadata.get(&package.id);
                 self.entries.insert(
                     package.id.clone(),
                     Entry {
                         package,
+                        description: maybe_meta
+                            .map(|s| s.description.to_string())
+                            .unwrap_or("Description unavailable.".to_string()),
                         expand_triggered: false,
                         enabled: true,
                         selected: false,
@@ -537,8 +555,8 @@ fn render_entry(ui: &mut egui::Ui, entry: &mut Entry) {
     });
 
     state.show_body_indented(&header_res.response, ui, |ui| {
-            ui.add_space(4.0);
-            ui.label(RichText::new("a very long description that only the real arch wiki level nerds will bother to read lol.").size(12.0));
-            ui.add_space(4.0);
-        });
+        ui.add_space(4.0);
+        ui.label(RichText::new(&entry.description).size(12.0));
+        ui.add_space(4.0);
+    });
 }
