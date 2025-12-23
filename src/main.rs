@@ -75,7 +75,7 @@ pub enum ShellRunError {
 #[derive(Debug)]
 pub struct Metadata {
     description: &'static str,
-    removal: &'static str,
+    removal: u8,
 }
 
 mod categories {
@@ -93,6 +93,16 @@ mod categories {
         "Unsafe",
         "Unidentified",
     ];
+
+    pub fn value_to_name(value: u8) -> &'static str {
+        match value {
+            RECOMMENDED => "Recommended",
+            ADVANCED => "Advanced",
+            EXPERT => "Expert",
+            UNSAFE => "Unsafe",
+            _ => "Unidentified",
+        }
+    }
 }
 
 pub enum Action {
@@ -402,8 +412,11 @@ impl eframe::App for App {
 
                 for (id, entry) in self.entries.iter_mut() {
                     let query_lower = self.search_query.to_lowercase();
-                    if id.to_lowercase().contains(&query_lower)
-                        || entry.package.label.to_lowercase().contains(&query_lower)
+                    let entry_removal = entry.metadata.map(|m|m.removal).unwrap_or(categories::UNIDENTIFIED);
+                    if (id.to_lowercase().contains(&query_lower)
+                        || entry.package.label.to_lowercase().contains(&query_lower)) && (
+                            entry_removal & self.categories == entry_removal
+                        )
                     {
                         render_entry(ui, entry);
                     }
@@ -535,7 +548,7 @@ fn render_entry(ui: &mut egui::Ui, entry: &mut Entry) {
         ui.with_layout(Layout::top_down_justified(egui::Align::LEFT), |ui| {
             let response = ui.add(
                 create_button(entry)
-                    .right_text(entry.metadata.map(|m| m.removal).unwrap_or("Unidentified")),
+                    .right_text(categories::value_to_name(entry.metadata.map(|m| m.removal).unwrap_or_default())),
             );
             let id = ui.make_persistent_id(format!("{}_interact", entry.package.id));
             if ui
