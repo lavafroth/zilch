@@ -10,6 +10,5 @@ egui = "0.33.2"
 egui_alignments = "0.3.6"
 egui_extras = "0.33.2"
 env_logger = "0.11.8"
+phf = { version = "0.13.1", features = ["macros"] }
 rusb = "0.9.4"
-serde = { version = "1.0.228", features = ["serde_derive"] }
-serde_json = "1.0.146"

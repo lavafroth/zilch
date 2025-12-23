@@ -15,7 +15,7 @@ use egui::{
     TopBottomPanel, text::LayoutJob,
 };
 use egui_alignments::{center_horizontal, column};
-use serde::Deserialize;
+mod metadata;
 
 const WORKER_THREAD_POLL: Duration = Duration::from_secs(5);
 const LABEL_EXTRACTOR: &[u8; 2124] = include_bytes!("./extractor.dex");
@@ -37,7 +37,6 @@ struct App {
 
     have_device: bool,
     busy: bool,
-    metadata: BTreeMap<String, Metadata>,
 }
 
 type PackageIdentifier = String;
@@ -55,7 +54,7 @@ struct Entry {
     expand_triggered: bool,
     enabled: bool,
     selected: bool,
-    description: String,
+    metadata: Option<&'static Metadata>,
 }
 
 struct PackageDiff {
@@ -73,11 +72,10 @@ pub enum ShellRunError {
     RevertFailed(PackageIdentifier),
 }
 
-#[derive(Deserialize)]
+#[derive(Debug)]
 pub struct Metadata {
-    // list: String,
-    description: String,
-    removal: String,
+    description: &'static str,
+    removal: &'static str,
 }
 
 mod categories {
@@ -110,8 +108,6 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
 
-    let metadata: BTreeMap<String, Metadata> = serde_json::from_str(include_str!("metadata.json"))
-        .map_err(|e| eframe::Error::AppCreation(Box::new(e)))?;
     eframe::run_native(
         "Zilch",
         options,
@@ -145,7 +141,6 @@ fn main() -> eframe::Result {
                 action_tx,
                 categories: categories::RECOMMENDED,
                 action_done_rx,
-                metadata,
             }))
         }),
     )
@@ -262,14 +257,12 @@ impl eframe::App for App {
             self.have_device = true;
 
             for package in package_diff.added {
-                let maybe_meta = self.metadata.get(&package.id);
+                let maybe_meta = metadata::STORE.get(&package.id);
                 self.entries.insert(
                     package.id.clone(),
                     Entry {
                         package,
-                        description: maybe_meta
-                            .map(|s| s.description.to_string())
-                            .unwrap_or("Description unavailable.".to_string()),
+                        metadata: maybe_meta,
                         expand_triggered: false,
                         enabled: true,
                         selected: false,
@@ -540,7 +533,10 @@ fn render_entry(ui: &mut egui::Ui, entry: &mut Entry) {
     let header_res = ui.horizontal(|ui| {
         ui.style_mut().spacing.button_padding = egui::vec2(20.0, 10.0);
         ui.with_layout(Layout::top_down_justified(egui::Align::LEFT), |ui| {
-            let response = ui.add(create_button(entry));
+            let response = ui.add(
+                create_button(entry)
+                    .right_text(entry.metadata.map(|m| m.removal).unwrap_or("Unidentified")),
+            );
             let id = ui.make_persistent_id(format!("{}_interact", entry.package.id));
             if ui
                 .interact(response.rect, id, Sense::click())
@@ -556,7 +552,15 @@ fn render_entry(ui: &mut egui::Ui, entry: &mut Entry) {
 
     state.show_body_indented(&header_res.response, ui, |ui| {
         ui.add_space(4.0);
-        ui.label(RichText::new(&entry.description).size(12.0));
+        ui.label(
+            RichText::new(
+                entry
+                    .metadata
+                    .map(|m| m.description)
+                    .unwrap_or("Description unavailable."),
+            )
+            .size(12.0),
+        );
         ui.add_space(4.0);
     });
 }
