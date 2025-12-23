@@ -26,12 +26,16 @@ struct App {
     uninstallable: bool,
     reinstallable: bool,
     entries: BTreeMap<String, Entry>,
+    categories: u8,
     package_diff_rx: Receiver<FrontendPayload>,
     device_lost_rx: Receiver<()>,
     action_tx: Sender<Action>,
+    // error_rx: Receiver<ShellRunError>,
+    action_done_rx: Receiver<()>,
     disable_mode: bool,
 
     have_device: bool,
+    busy: bool,
 }
 
 type PackageIdentifier = String;
@@ -66,6 +70,23 @@ pub enum ShellRunError {
     RevertFailed(PackageIdentifier),
 }
 
+mod categories {
+    pub const RECOMMENDED: u8 = 0b10000;
+    pub const ADVANCED: u8 = 0b01000;
+    pub const EXPERT: u8 = 0b00100;
+    pub const UNSAFE: u8 = 0b00010;
+    pub const UNIDENTIFIED: u8 = 0b00001;
+
+    pub const VALUES: [u8; 5] = [RECOMMENDED, ADVANCED, EXPERT, UNSAFE, UNIDENTIFIED];
+    pub const NAMES: [&str; 5] = [
+        "Recommended",
+        "Advanced",
+        "Expert",
+        "Unsafe",
+        "Unidentified",
+    ];
+}
+
 pub enum Action {
     Uninstall(Package),
     Revert(PackageIdentifier),
@@ -85,12 +106,21 @@ fn main() -> eframe::Result {
             let (package_diff_tx, package_diff_rx) = channel();
             let (device_lost_tx, device_lost_rx) = channel();
             let (action_tx, action_rx) = channel();
+            let (action_done_tx, action_done_rx) = channel();
 
             let ctx = cc.egui_ctx.clone();
-            spawn(move || worker_thread(package_diff_tx, device_lost_tx, action_rx, ctx));
+            spawn(move || {
+                worker_thread(
+                    package_diff_tx,
+                    device_lost_tx,
+                    action_rx,
+                    action_done_tx,
+                    ctx,
+                )
+            });
 
             Ok(Box::new(App {
-                // n_selected: 0,
+                busy: false,
                 disable_mode: false,
                 have_device: false,
                 uninstallable: false,
@@ -100,6 +130,8 @@ fn main() -> eframe::Result {
                 package_diff_rx,
                 entries: Default::default(),
                 action_tx,
+                categories: categories::RECOMMENDED,
+                action_done_rx,
             }))
         }),
     )
@@ -128,7 +160,6 @@ impl Action {
             Action::Revert(id) => {
                 let revert_command = format!("package install-existing {id}");
                 let output = device.shell_command_text(&revert_command)?;
-                // eprintln!("revert output {output:?}");
 
                 if !output.contains("inaccessible or not found") {
                     return Ok(());
@@ -144,15 +175,6 @@ impl Action {
                 let disable_command = format!("pm disable --user 0 {id}");
                 let output = device.shell_command_text(&disable_command)?;
                 eprintln!("disable output {output:?}");
-
-                // for id in items {
-                //     let output =
-                //         device.shell_command_text(&format!("pm uninstall --user 0 -k {id}"))?;
-
-                //     if !output.contains("Success") {
-                //         return Err(ShellRunError::UnsuccessfulOperation(id));
-                //     }
-                // }
             }
         }
         Ok(())
@@ -163,6 +185,7 @@ fn worker_thread(
     package_diff_tx: Sender<PackageDiff>,
     device_lost_tx: Sender<()>,
     action_rx: Receiver<Action>,
+    action_done_tx: Sender<()>,
     ctx: egui::Context,
 ) {
     let mut maybe_device: Option<ADBUSBDevice> = None;
@@ -173,25 +196,23 @@ fn worker_thread(
             maybe_device = ADBUSBDevice::autodetect().ok();
             if maybe_device.is_none() {
                 sleep(WORKER_THREAD_POLL);
-            } else {
-                eprintln!("watermelon");
             }
         }
 
         if let Some(device) = maybe_device.as_mut() {
-            eprintln!("cocomelon");
             let mut label_extractor_dex_stream = BufReader::new(&LABEL_EXTRACTOR[..]);
             let remote_path = "/data/local/tmp/extractor.dex";
             device
                 .push(&mut label_extractor_dex_stream, &remote_path)
                 .expect("failed to upload extractor to the device");
-            eprintln!("pushed");
         }
 
         while let Some(device) = maybe_device.as_mut() {
-            if let Ok(action) = action_rx.try_recv() {
+            // do all the actions in bulk before the next render
+            while let Ok(action) = action_rx.try_recv() {
                 action.apply_on_device(device);
             }
+
             match fetch_packages(device, &pkg_set) {
                 Ok((diff, new_pkg_set)) => {
                     if diff.added.is_empty() && diff.removed.is_empty() {
@@ -208,6 +229,7 @@ fn worker_thread(
                     device_lost_tx.send(()).expect("failed to send to ui");
                 }
             }
+            action_done_tx.send(()).expect("failed to send to ui");
             ctx.request_repaint();
 
             sleep(WORKER_THREAD_POLL);
@@ -218,6 +240,10 @@ fn worker_thread(
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.set_pixels_per_point(1.5);
+
+        if let Ok(()) = self.action_done_rx.try_recv() {
+            self.busy = false;
+        }
         if let Ok(package_diff) = self.package_diff_rx.try_recv() {
             self.have_device = true;
 
@@ -242,6 +268,8 @@ impl eframe::App for App {
 
         if let Ok(()) = self.device_lost_rx.try_recv() {
             self.have_device = false;
+            self.entries.clear();
+
             println!("device lost");
         }
 
@@ -288,8 +316,25 @@ impl eframe::App for App {
                 }
             }
         });
+
         TopBottomPanel::bottom("action_bar").show(ctx, |ui| {
             ui.add_space(6.0);
+
+            ui.style_mut().spacing.button_padding = [6.0, 6.0].into();
+            ui.horizontal_wrapped(|ui| {
+                for (category, bits) in categories::NAMES.into_iter().zip(categories::VALUES) {
+                    let selected = self.categories & bits == bits;
+                    if ui
+                        .add(
+                            Button::selectable(selected, RichText::new(category).size(12.0))
+                                .corner_radius(10.0),
+                        )
+                        .clicked()
+                    {
+                        self.categories ^= bits;
+                    };
+                }
+            });
 
             let button = if self.disable_mode {
                 Button::new("disable")
@@ -307,10 +352,12 @@ impl eframe::App for App {
                 }
             }
 
+            ui.separator();
             ui.horizontal(|ui| {
                 let button_size = [80.0, 30.0];
-
-                if self.uninstallable == self.reinstallable {
+                if self.busy {
+                    ui.add_sized(button_size, Spinner::new());
+                } else if self.uninstallable == self.reinstallable {
                     ui.add_enabled_ui(false, |ui| {
                         ui.add_sized(button_size, button);
                     });
@@ -326,15 +373,14 @@ impl eframe::App for App {
                                     .send(Action::Disable(entry.package.id.clone()))
                                     .expect("failed to send message to backend");
                             }
-
-                            return;
+                        } else {
+                            for entry in selected.iter() {
+                                self.action_tx
+                                    .send(Action::Uninstall(entry.package.clone()))
+                                    .expect("failed to send message to backend");
+                            }
                         }
-
-                        for entry in selected.iter() {
-                            self.action_tx
-                                .send(Action::Uninstall(entry.package.clone()))
-                                .expect("failed to send message to backend");
-                        }
+                        self.busy = true;
                     });
                 } else if self.reinstallable {
                     ui.add_enabled_ui(true, |ui| {
@@ -344,6 +390,8 @@ impl eframe::App for App {
                                     .send(Action::Revert(entry.package.id.clone()))
                                     .expect("failed to send message to backend");
                             }
+
+                            self.busy = true;
                         }
                     });
                 }
@@ -381,7 +429,6 @@ fn fetch_packages(
     pkg_set: &BTreeSet<String>,
 ) -> Result<(PackageDiff, BTreeSet<String>), ShellRunError> {
     let raw_pkg_text = device.shell_command_text("pm list packages -f")?;
-    eprintln!("fucky fucky?");
 
     let mut current_set = BTreeSet::new();
 
@@ -408,7 +455,6 @@ fn fetch_packages(
     if need_to_fetch_labels {
         let raw_pkg_text = device
             .shell_command_text("CLASSPATH=/data/local/tmp/extractor.dex app_process / Main")?;
-        eprintln!("sucky sucky?");
 
         for line in raw_pkg_text.lines() {
             let mut splitn = line.splitn(3, ' ');
