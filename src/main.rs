@@ -395,14 +395,16 @@ impl eframe::App for App {
             ui.add_space(2.0);
         });
 
+        let mut search = None;
+
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.take_available_width();
             ui.horizontal(|ui| {
                 ui.take_available_width();
-                ui.add_sized(
+                search.replace(ui.add_sized(
                     [ui.available_width(), 20.0],
                     TextEdit::singleline(&mut self.search_query).hint_text("Search"),
-                )
+                ))
             });
 
             ui.separator();
@@ -429,6 +431,15 @@ impl eframe::App for App {
                 for (_id, entry) in self.entries.iter_mut() {
                     entry.selected = false;
                 }
+            }
+            if let Some(focusable_search) = search
+                && ui.input(|i| {
+                    i.key_pressed(egui::Key::S)
+                        || i.key_pressed(egui::Key::Slash)
+                        || (i.modifiers.ctrl && i.key_pressed(egui::Key::F))
+                })
+            {
+                focusable_search.request_focus();
             }
         });
     }

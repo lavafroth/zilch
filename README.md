@@ -16,14 +16,12 @@ Purge Android bloat with confidence.
 - Architecture independent, works with any Android device over USB
 - Accidentally removed apps can be restored via the revert button
 - Recommendation categories (borrowed from UAD)
+- Press `S` or `/` or `Ctrl` `F` to search apps
 
 ### Not yet implemented
 
-- Save button + shortcut
+- Save button + shortcut `Ctrl` `S`
 - Make uninstall and disable options depend on Android SDK
-- Press `S` or `/` to search apps (not yet implemented)
-- Save the current configuration with `Ctrl` + `S` (not yet implemented)
-- Switch categories with `Ctrl` + `Tab` (not yet implemented)
 
 ### Build from source
 
