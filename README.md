@@ -9,23 +9,21 @@ Purge Android bloat with confidence.
 
 ## Features
 
-### Simple UI
-
 - Click on app entries to select them
 - Double click to expand
 - Clear multi-selection by pressing `Escape`
-- Press `S` or `/` to search apps (not yet implemented)
-- Save the current configuration with `Ctrl` + `S` (not yet implemented)
-- Switch categories with `Ctrl` + `Tab` (not yet implemented)
 - Extracts app labels via package manager API
 - Architecture independent, works with any Android device over USB
 - Accidentally removed apps can be restored via the revert button
+- Recommendation categories (borrowed from UAD)
 
 ### Not yet implemented
 
-- [ ] Save button + shortcut
-- [ ] Recommendation categories (WIP)
-- [ ] Make uninstall and disable options depend on Android SDK
+- Save button + shortcut
+- Make uninstall and disable options depend on Android SDK
+- Press `S` or `/` to search apps (not yet implemented)
+- Save the current configuration with `Ctrl` + `S` (not yet implemented)
+- Switch categories with `Ctrl` + `Tab` (not yet implemented)
 
 ### Build from source
 
