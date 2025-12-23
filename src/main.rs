@@ -412,11 +412,13 @@ impl eframe::App for App {
 
                 for (id, entry) in self.entries.iter_mut() {
                     let query_lower = self.search_query.to_lowercase();
-                    let entry_removal = entry.metadata.map(|m|m.removal).unwrap_or(categories::UNIDENTIFIED);
+                    let entry_removal = entry
+                        .metadata
+                        .map(|m| m.removal)
+                        .unwrap_or(categories::UNIDENTIFIED);
                     if (id.to_lowercase().contains(&query_lower)
-                        || entry.package.label.to_lowercase().contains(&query_lower)) && (
-                            entry_removal & self.categories == entry_removal
-                        )
+                        || entry.package.label.to_lowercase().contains(&query_lower))
+                        && (entry_removal & self.categories == entry_removal)
                     {
                         render_entry(ui, entry);
                     }
@@ -546,10 +548,9 @@ fn render_entry(ui: &mut egui::Ui, entry: &mut Entry) {
     let header_res = ui.horizontal(|ui| {
         ui.style_mut().spacing.button_padding = egui::vec2(20.0, 10.0);
         ui.with_layout(Layout::top_down_justified(egui::Align::LEFT), |ui| {
-            let response = ui.add(
-                create_button(entry)
-                    .right_text(categories::value_to_name(entry.metadata.map(|m| m.removal).unwrap_or_default())),
-            );
+            let response = ui.add(create_button(entry).right_text(categories::value_to_name(
+                entry.metadata.map(|m| m.removal).unwrap_or_default(),
+            )));
             let id = ui.make_persistent_id(format!("{}_interact", entry.package.id));
             if ui
                 .interact(response.rect, id, Sense::click())
