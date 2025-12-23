@@ -111,7 +111,7 @@ dependencies = [
 [[package]]
 name = "adb_client"
 version = "2.1.18"
-source = "git+https://github.com/lavafroth/adb_client?branch=with-read-timeout#5cfb7dc4dd04810522e3ac65ec8dfbe7eed34597"
+source = "git+https://github.com/lavafroth/adb_client?branch=with-read-timeout#f69a3d8a1aa58713e899a8d07ba13588027390e9"
 dependencies = [
  "base64",
  "bincode",
