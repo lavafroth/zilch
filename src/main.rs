@@ -296,38 +296,6 @@ impl eframe::App for App {
             return;
         };
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.take_available_width();
-            ui.horizontal(|ui| {
-                ui.take_available_width();
-                ui.add_sized(
-                    [ui.available_width(), 20.0],
-                    TextEdit::singleline(&mut self.search_query).hint_text("Search"),
-                )
-            });
-
-            ui.separator();
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                self.uninstallable = false;
-                self.reinstallable = false;
-
-                for (id, entry) in self.entries.iter_mut() {
-                    let query_lower = self.search_query.to_lowercase();
-                    if id.to_lowercase().contains(&query_lower)
-                        || entry.package.label.to_lowercase().contains(&query_lower)
-                    {
-                        render_entry(ui, entry);
-                    }
-                }
-            });
-
-            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                for (_id, entry) in self.entries.iter_mut() {
-                    entry.selected = false;
-                }
-            }
-        });
-
         TopBottomPanel::bottom("action_bar").show(ctx, |ui| {
             ui.add_space(6.0);
 
@@ -415,6 +383,38 @@ impl eframe::App for App {
                 ui.separator();
             });
             ui.add_space(2.0);
+        });
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.take_available_width();
+            ui.horizontal(|ui| {
+                ui.take_available_width();
+                ui.add_sized(
+                    [ui.available_width(), 20.0],
+                    TextEdit::singleline(&mut self.search_query).hint_text("Search"),
+                )
+            });
+
+            ui.separator();
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                self.uninstallable = false;
+                self.reinstallable = false;
+
+                for (id, entry) in self.entries.iter_mut() {
+                    let query_lower = self.search_query.to_lowercase();
+                    if id.to_lowercase().contains(&query_lower)
+                        || entry.package.label.to_lowercase().contains(&query_lower)
+                    {
+                        render_entry(ui, entry);
+                    }
+                }
+            });
+
+            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                for (_id, entry) in self.entries.iter_mut() {
+                    entry.selected = false;
+                }
+            }
         });
     }
 }
