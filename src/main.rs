@@ -229,7 +229,7 @@ fn worker_thread(
         while let Some(device) = maybe_device.as_mut() {
             // do all the actions in bulk before the next render
             while let Ok(action) = action_rx.try_recv() {
-                action.apply_on_device(device);
+                let _ = action.apply_on_device(device);
             }
 
             action_done_tx.send(()).expect("failed to send to ui");
