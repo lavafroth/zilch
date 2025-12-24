@@ -1,4 +1,4 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in releaspackage
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -37,6 +37,7 @@ struct App {
 
     have_device: bool,
     busy: bool,
+    action_result_rx: Receiver<Result<ActionResult, ShellRunError>>,
 }
 
 type PackageIdentifier = String;
@@ -55,11 +56,13 @@ struct Entry {
     enabled: bool,
     selected: bool,
     metadata: Option<&'static Metadata>,
+    last_action_was_disable_mode: bool,
 }
 
 struct PackageDiff {
     added: Vec<Package>,
     removed: Vec<PackageIdentifier>,
+    disabled: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -70,6 +73,7 @@ pub enum ShellRunError {
     UnsuccessfulOperation(PackageIdentifier),
     BackupNotPossible(PackageIdentifier),
     RevertFailed(PackageIdentifier),
+    DisableFailed(String),
 }
 
 #[derive(Debug)]
@@ -126,6 +130,7 @@ fn main() -> eframe::Result {
             let (device_lost_tx, device_lost_rx) = channel();
             let (action_tx, action_rx) = channel();
             let (action_done_tx, action_done_rx) = channel();
+            let (action_result_tx, action_result_rx) = channel();
 
             let ctx = cc.egui_ctx.clone();
             spawn(move || {
@@ -134,6 +139,7 @@ fn main() -> eframe::Result {
                     device_lost_tx,
                     action_rx,
                     action_done_tx,
+                    action_result_tx,
                     ctx,
                 )
             });
@@ -151,13 +157,14 @@ fn main() -> eframe::Result {
                 action_tx,
                 categories: categories::RECOMMENDED,
                 action_done_rx,
+                action_result_rx,
             }))
         }),
     )
 }
 
 impl Action {
-    fn apply_on_device(self, device: &mut ADBUSBDevice) -> Result<(), ShellRunError> {
+    fn apply_on_device(self, device: &mut ADBUSBDevice) -> Result<ActionResult, ShellRunError> {
         match self {
             Action::Uninstall(pkg) => {
                 if pkg.path.is_empty() {
@@ -175,13 +182,14 @@ impl Action {
                 if !output.contains("Success") {
                     return Err(ShellRunError::UnsuccessfulOperation(pkg.id));
                 }
+                Ok(ActionResult::Uninstalled(pkg.id))
             }
             Action::Revert(id) => {
                 let revert_command = format!("package install-existing {id}");
                 let output = device.shell_command_text(&revert_command)?;
 
                 if !output.contains("inaccessible or not found") {
-                    return Ok(());
+                    return Err(ShellRunError::UnsuccessfulOperation(id));
                 }
 
                 let revert_command = format!("pm install -r --user 0 /data/local/tmp/{id}.apk");
@@ -189,15 +197,25 @@ impl Action {
                 if !output.contains("Success") {
                     return Err(ShellRunError::RevertFailed(id));
                 }
+                Ok(ActionResult::Reverted(id))
             }
             Action::Disable(id) => {
-                let disable_command = format!("pm disable --user 0 {id}");
+                let disable_command = format!("pm disable-user {id}");
                 let output = device.shell_command_text(&disable_command)?;
                 eprintln!("disable output {output:?}");
+                if !output.contains("new state: disabled-user") {
+                    return Err(ShellRunError::DisableFailed(id));
+                }
+                Ok(ActionResult::Disabled(id))
             }
         }
-        Ok(())
     }
+}
+
+pub enum ActionResult {
+    Uninstalled(PackageIdentifier),
+    Disabled(PackageIdentifier),
+    Reverted(PackageIdentifier),
 }
 
 fn worker_thread(
@@ -205,6 +223,7 @@ fn worker_thread(
     device_lost_tx: Sender<()>,
     action_rx: Receiver<Action>,
     action_done_tx: Sender<()>,
+    action_result_tx: Sender<Result<ActionResult, ShellRunError>>,
     ctx: egui::Context,
 ) {
     let mut maybe_device: Option<ADBUSBDevice> = None;
@@ -229,13 +248,16 @@ fn worker_thread(
         while let Some(device) = maybe_device.as_mut() {
             // do all the actions in bulk before the next render
             while let Ok(action) = action_rx.try_recv() {
-                let _ = action.apply_on_device(device);
+                action_result_tx
+                    .send(action.apply_on_device(device))
+                    .expect("failed to send to ui");
             }
 
             action_done_tx.send(()).expect("failed to send to ui");
             match fetch_packages(device, &pkg_set) {
                 Ok((diff, new_pkg_set)) => {
-                    if diff.added.is_empty() && diff.removed.is_empty() {
+                    if diff.added.is_empty() && diff.removed.is_empty() && diff.disabled.is_empty()
+                    {
                         sleep(WORKER_THREAD_POLL);
                         continue;
                     }
@@ -263,6 +285,19 @@ impl eframe::App for App {
         if let Ok(()) = self.action_done_rx.try_recv() {
             self.busy = false;
         }
+
+        if let Ok(action_result) = self.action_result_rx.try_recv() {
+            match action_result {
+                Ok(completed) => match completed {
+                    // TODO: add feedback that the action was successful
+                    ActionResult::Disabled(_) => {}
+                    ActionResult::Reverted(_) => {}
+                    ActionResult::Uninstalled(_) => {}
+                },
+                Err(e) => eprintln!("{e:?}"),
+            }
+        }
+
         if let Ok(package_diff) = self.package_diff_rx.try_recv() {
             self.have_device = true;
 
@@ -271,6 +306,7 @@ impl eframe::App for App {
                 self.entries.insert(
                     package.id.clone(),
                     Entry {
+                        last_action_was_disable_mode: false,
                         package,
                         metadata: maybe_meta,
                         expand_triggered: false,
@@ -283,6 +319,13 @@ impl eframe::App for App {
             for package_id in package_diff.removed {
                 if let Some(entry) = self.entries.get_mut(&package_id) {
                     entry.enabled = false;
+                };
+            }
+
+            for package_id in package_diff.disabled {
+                if let Some(entry) = self.entries.get_mut(&package_id) {
+                    entry.enabled = false;
+                    entry.last_action_was_disable_mode = true;
                 };
             }
         }
@@ -441,6 +484,42 @@ impl eframe::App for App {
             {
                 focusable_search.request_focus();
             }
+
+            if ui.input(|i| i.key_pressed(egui::Key::S) && i.modifiers.ctrl)
+                && let Some(path) = rfd::FileDialog::new()
+                    .set_file_name("zilch.ini")
+                    .save_file()
+            {
+                let mut enabled = vec![];
+                let mut uninstalled = vec![];
+                let mut disabled = vec![];
+                for (id, entry) in self.entries.iter() {
+                    if entry.enabled {
+                        enabled.push(id.clone());
+                        continue;
+                    }
+
+                    if entry.last_action_was_disable_mode {
+                        disabled.push(id.clone());
+                        continue;
+                    }
+
+                    uninstalled.push(id.clone());
+                }
+
+                let contents = format!(
+                    "disabled={}\nenabled={}\nuninstalled={}",
+                    disabled.join(","),
+                    enabled.join(","),
+                    uninstalled.join(",")
+                );
+                if let Err(e) = std::fs::write(&path, contents) {
+                    eprintln!(
+                        "failed to write device state to {}: {e}",
+                        path.display().to_string()
+                    );
+                };
+            }
         });
     }
 }
@@ -488,6 +567,14 @@ fn fetch_packages(
 
     let removed = pkg_set.difference(&current_set).cloned().collect();
 
+    // disabled
+    let raw_pkg_text = device.shell_command_text("pm list packages -d")?;
+    let mut disabled = vec![];
+    for line in raw_pkg_text.lines() {
+        let id = line.strip_prefix("package:").unwrap_or(line);
+        disabled.push(id.to_string());
+    }
+
     let need_to_fetch_labels = !new_packages.is_empty();
     if need_to_fetch_labels {
         let raw_pkg_text = device
@@ -510,6 +597,7 @@ fn fetch_packages(
         PackageDiff {
             added: new_packages.into_values().collect(),
             removed,
+            disabled,
         },
         current_set,
     ))
