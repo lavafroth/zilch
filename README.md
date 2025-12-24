@@ -4,9 +4,6 @@ Purge Android bloat with confidence.
 
 ![How the app currently looks](./assets/Screenshot_20251223_113343.png)
 
-> [!WARNING]  
-> This app is not production ready, some features are missing.
-
 ## Features
 
 - Click on app entries to select them
@@ -22,6 +19,12 @@ Purge Android bloat with confidence.
 ### Not yet implemented
 
 - Make uninstall and disable options depend on Android SDK version
+
+## Installation
+
+### From binary releases
+
+Precompiled binaries are available under the releases tab.
 
 ### Build from source
 
