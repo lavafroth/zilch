@@ -11,8 +11,8 @@ use std::{
 use adb_client::{ADBDeviceExt, ADBUSBDevice};
 use eframe::egui;
 use egui::{
-    Align, Button, Color32, Label, Layout, RichText, Sense, Spinner, Style, TextEdit,
-    TopBottomPanel, text::LayoutJob,
+    Align, Button, Color32, Label, Layout, RichText, Sense, Spinner, Stroke, Style, TextEdit,
+    TopBottomPanel, Visuals, text::LayoutJob,
 };
 use egui_alignments::{center_horizontal, column};
 mod metadata;
@@ -641,15 +641,14 @@ fn fetch_packages(
     ))
 }
 
-fn create_button(entry: &'_ Entry) -> Button<'_> {
+fn create_button(entry: &'_ Entry, faint_bg: Color32, selection_bg: Color32) -> Button<'_> {
     let mut job = LayoutJob::default();
     let mut label = RichText::new(format!("{}\n", entry.package.label)).size(12.0);
     let mut package_id = RichText::new(&entry.package.id).monospace().size(10.0);
-    let disabled_text_color = Color32::from_rgb(100, 100, 100);
 
     if !entry.enabled {
-        label = label.strikethrough().color(disabled_text_color);
-        package_id = package_id.strikethrough().color(disabled_text_color);
+        label = label.strikethrough();
+        package_id = package_id.strikethrough();
     }
 
     label.append_to(
@@ -666,7 +665,7 @@ fn create_button(entry: &'_ Entry) -> Button<'_> {
     );
     let button = Button::selectable(entry.selected, job);
     if !entry.enabled {
-        button.fill(Color32::from_rgb(60, 60, 60))
+        button.stroke(Stroke::new(1.0, selection_bg)).fill(faint_bg)
     } else {
         button
     }
@@ -685,9 +684,17 @@ fn render_entry(ui: &mut egui::Ui, entry: &mut Entry) {
     let header_res = ui.horizontal(|ui| {
         ui.style_mut().spacing.button_padding = egui::vec2(20.0, 10.0);
         ui.with_layout(Layout::top_down_justified(egui::Align::LEFT), |ui| {
-            let response = ui.add(create_button(entry).right_text(categories::value_to_name(
-                entry.metadata.map(|m| m.removal).unwrap_or_default(),
-            )));
+            let faint_bg = ui.style().visuals.faint_bg_color;
+            let selection_bg = ui.style().visuals.selection.bg_fill;
+            let faint_selection_bg = selection_bg.lerp_to_gamma(faint_bg, 0.6);
+
+            let response = ui.add(
+                create_button(entry, faint_selection_bg, selection_bg).right_text(
+                    categories::value_to_name(
+                        entry.metadata.map(|m| m.removal).unwrap_or_default(),
+                    ),
+                ),
+            );
             let id = ui.make_persistent_id(format!("{}_interact", entry.package.id));
             if ui
                 .interact(response.rect, id, Sense::click())
