@@ -17,11 +17,11 @@ Purge Android bloat with confidence.
 - Accidentally removed apps can be restored via the revert button
 - Recommendation categories (borrowed from UAD)
 - Press `S` or `/` or `Ctrl` `F` to search apps
+- Save the current state of packages on the phone with `Ctrl` `S`
 
 ### Not yet implemented
 
-- Save button + shortcut `Ctrl` `S`
-- Make uninstall and disable options depend on Android SDK
+- Make uninstall and disable options depend on Android SDK version
 
 ### Build from source
 
