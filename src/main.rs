@@ -56,13 +56,23 @@ struct Entry {
     enabled: bool,
     selected: bool,
     metadata: Option<&'static Metadata>,
-    last_action_was_disable_mode: bool,
+    strictly_disabled: bool,
 }
 
 struct PackageDiff {
     added: Vec<Package>,
     removed: Vec<PackageIdentifier>,
     disabled: Vec<String>,
+    re_enabled: Vec<String>,
+}
+
+impl PackageDiff {
+    fn same_as_before(&self) -> bool {
+        self.added.is_empty()
+            && self.removed.is_empty()
+            && self.disabled.is_empty()
+            && self.re_enabled.is_empty()
+    }
 }
 
 #[derive(Debug)]
@@ -111,7 +121,7 @@ mod categories {
 
 pub enum Action {
     Uninstall(Package),
-    Revert(PackageIdentifier),
+    Revert(PackageIdentifier, bool),
     Disable(PackageIdentifier),
 }
 
@@ -184,25 +194,32 @@ impl Action {
                 }
                 Ok(ActionResult::Uninstalled(pkg.id))
             }
-            Action::Revert(id) => {
-                let revert_command = format!("package install-existing {id}");
-                let output = device.shell_command_text(&revert_command)?;
+            Action::Revert(id, was_disabled) => {
+                if was_disabled {
+                    let revert_command = format!("pm enable {id}");
+                    let output = device.shell_command_text(&revert_command)?;
+                    if !output.contains("new state: enabled") {
+                        return Err(ShellRunError::UnsuccessfulOperation(id));
+                    }
+                } else {
+                    let revert_command = format!("pm install-existing {id}");
+                    let output = device.shell_command_text(&revert_command)?;
 
-                if !output.contains("inaccessible or not found") {
-                    return Err(ShellRunError::UnsuccessfulOperation(id));
-                }
+                    if !output.contains("inaccessible or not found") {
+                        return Ok(ActionResult::Reverted(id));
+                    }
 
-                let revert_command = format!("pm install -r --user 0 /data/local/tmp/{id}.apk");
-                let output = device.shell_command_text(&revert_command)?;
-                if !output.contains("Success") {
-                    return Err(ShellRunError::RevertFailed(id));
+                    let revert_command = format!("pm install -r --user 0 /data/local/tmp/{id}.apk");
+                    let output = device.shell_command_text(&revert_command)?;
+                    if !output.contains("Success") {
+                        return Err(ShellRunError::RevertFailed(id));
+                    }
                 }
                 Ok(ActionResult::Reverted(id))
             }
             Action::Disable(id) => {
                 let disable_command = format!("pm disable-user {id}");
                 let output = device.shell_command_text(&disable_command)?;
-                eprintln!("disable output {output:?}");
                 if !output.contains("new state: disabled-user") {
                     return Err(ShellRunError::DisableFailed(id));
                 }
@@ -228,6 +245,7 @@ fn worker_thread(
 ) {
     let mut maybe_device: Option<ADBUSBDevice> = None;
     let mut pkg_set: BTreeSet<PackageIdentifier> = Default::default();
+    let mut disabled_set: BTreeSet<PackageIdentifier> = Default::default();
 
     loop {
         while maybe_device.is_none() {
@@ -254,14 +272,14 @@ fn worker_thread(
             }
 
             action_done_tx.send(()).expect("failed to send to ui");
-            match fetch_packages(device, &pkg_set) {
-                Ok((diff, new_pkg_set)) => {
-                    if diff.added.is_empty() && diff.removed.is_empty() && diff.disabled.is_empty()
-                    {
+            match fetch_packages(device, &pkg_set, &disabled_set) {
+                Ok((diff, new_pkg_set, new_disabled_set)) => {
+                    if diff.same_as_before() {
                         sleep(WORKER_THREAD_POLL);
                         continue;
                     }
                     pkg_set = new_pkg_set;
+                    disabled_set = new_disabled_set;
                     package_diff_tx.send(diff).expect("failed to send to ui");
                 }
                 Err(ShellRunError::Timeout) => {}
@@ -306,7 +324,7 @@ impl eframe::App for App {
                 self.entries.insert(
                     package.id.clone(),
                     Entry {
-                        last_action_was_disable_mode: false,
+                        strictly_disabled: false,
                         package,
                         metadata: maybe_meta,
                         expand_triggered: false,
@@ -325,7 +343,14 @@ impl eframe::App for App {
             for package_id in package_diff.disabled {
                 if let Some(entry) = self.entries.get_mut(&package_id) {
                     entry.enabled = false;
-                    entry.last_action_was_disable_mode = true;
+                    entry.strictly_disabled = true;
+                };
+            }
+
+            for package_id in package_diff.re_enabled {
+                if let Some(entry) = self.entries.get_mut(&package_id) {
+                    entry.enabled = true;
+                    entry.strictly_disabled = false;
                 };
             }
         }
@@ -419,7 +444,10 @@ impl eframe::App for App {
                         if ui.add_sized(button_size, Button::new("revert")).clicked() {
                             for entry in selected.iter() {
                                 self.action_tx
-                                    .send(Action::Revert(entry.package.id.clone()))
+                                    .send(Action::Revert(
+                                        entry.package.id.clone(),
+                                        entry.strictly_disabled,
+                                    ))
                                     .expect("failed to send message to backend");
                             }
 
@@ -499,7 +527,7 @@ impl eframe::App for App {
                         continue;
                     }
 
-                    if entry.last_action_was_disable_mode {
+                    if entry.strictly_disabled {
                         disabled.push(id.clone());
                         continue;
                     }
@@ -514,10 +542,7 @@ impl eframe::App for App {
                     uninstalled.join(",")
                 );
                 if let Err(e) = std::fs::write(&path, contents) {
-                    eprintln!(
-                        "failed to write device state to {}: {e}",
-                        path.display().to_string()
-                    );
+                    eprintln!("failed to write device state to {}: {e}", path.display());
                 };
             }
         });
@@ -543,7 +568,8 @@ impl ShellCommandExt for ADBUSBDevice {
 fn fetch_packages(
     device: &mut ADBUSBDevice,
     pkg_set: &BTreeSet<String>,
-) -> Result<(PackageDiff, BTreeSet<String>), ShellRunError> {
+    disabled_set: &BTreeSet<String>,
+) -> Result<(PackageDiff, BTreeSet<String>, BTreeSet<String>), ShellRunError> {
     let raw_pkg_text = device.shell_command_text("pm list packages -f")?;
 
     let mut current_set = BTreeSet::new();
@@ -569,11 +595,21 @@ fn fetch_packages(
 
     // disabled
     let raw_pkg_text = device.shell_command_text("pm list packages -d")?;
-    let mut disabled = vec![];
+    let mut current_disabled_set = BTreeSet::new();
     for line in raw_pkg_text.lines() {
         let id = line.strip_prefix("package:").unwrap_or(line);
-        disabled.push(id.to_string());
+        current_disabled_set.insert(id.to_string());
     }
+
+    let re_enabled = disabled_set
+        .difference(&current_disabled_set)
+        .map(|v| v.to_string())
+        .collect();
+
+    let disabled = current_disabled_set
+        .difference(disabled_set)
+        .map(|v| v.to_string())
+        .collect();
 
     let need_to_fetch_labels = !new_packages.is_empty();
     if need_to_fetch_labels {
@@ -598,8 +634,10 @@ fn fetch_packages(
             added: new_packages.into_values().collect(),
             removed,
             disabled,
+            re_enabled,
         },
         current_set,
+        current_disabled_set,
     ))
 }
 
