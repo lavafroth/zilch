@@ -3,13 +3,18 @@ name = "zilch"
 version = "0.2.0"
 edition = "2024"
 
+[profile.release]
+strip = true
+
 [dependencies]
 adb_client = {version = "2.1.18", git = "https://github.com/lavafroth/adb_client", branch = "with-read-timeout"}
-eframe = "0.33.2"
+# TODO: drop x11 support when wayland adoption increases. Will decrease binary size
+eframe = {version = "0.33.2", features = ["accesskit", "default_fonts", "glow", "wayland", "x11"] }
 egui = "0.33.2"
 egui_alignments = "0.3.6"
 egui_extras = "0.33.2"
 env_logger = "0.11.8"
+log = "0.4.29"
 phf = { version = "0.13.1", features = ["macros"] }
 rfd = { version = "0.16.0", features = ["ashpd", "pollster", "urlencoding", "wayland", "xdg-portal"] }
 rusb = "0.9.4"

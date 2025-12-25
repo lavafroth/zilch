@@ -5324,7 +5324,7 @@ dependencies = [
 
 [[package]]
 name = "zilch"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "adb_client",
  "eframe",
@@ -5332,6 +5332,7 @@ dependencies = [
  "egui_alignments",
  "egui_extras",
  "env_logger",
+ "log",
  "phf 0.13.1",
  "rfd",
  "rusb",
