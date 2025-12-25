@@ -1,10 +1,10 @@
 use crate::Action;
 use crate::categories;
 use crate::listview;
+use crate::listview::State;
 
-use egui::{
-    Button, RichText, Spinner,
-};
+use egui::Vec2;
+use egui::{Button, RichText, Spinner};
 
 impl crate::App {
     pub fn action_bar(&mut self, ui: &mut egui::Ui) {
@@ -33,30 +33,22 @@ impl crate::App {
         };
 
         let mut selected: Vec<&listview::Entry> = vec![];
+        let mut selected_app_state = 0b111;
         for entry in self.entries.values().filter(|entry| entry.selected) {
             selected.push(entry);
-            if entry.enabled {
-                self.uninstallable = true;
-            } else {
-                self.reinstallable = true;
-            }
+            selected_app_state &= entry.state as u8;
         }
 
+        // eprintln!("{0:08b}", self.selected_app_state);
+
         ui.separator();
+
         ui.horizontal(|ui| {
-            let button_size = [80.0, 30.0];
+            let button_size = [80.0, 30.0].into();
             if self.busy {
                 ui.add_sized(button_size, Spinner::new());
-            } else if self.uninstallable == self.reinstallable {
-                ui.add_enabled_ui(false, |ui| {
-                    ui.add_sized(button_size, button);
-                });
-            } else if self.uninstallable {
-                ui.add_enabled_ui(true, |ui| {
-                    if !ui.add_sized(button_size, button).clicked() {
-                        return;
-                    }
-
+            } else if selected_app_state == State::Enabled as u8 {
+                if add_enabled_button(true, ui, button_size, button) {
                     if self.disable_mode {
                         for entry in selected.iter() {
                             self.action_tx
@@ -71,22 +63,21 @@ impl crate::App {
                         }
                     }
                     self.busy = true;
-                });
-            } else if self.reinstallable {
-                ui.add_enabled_ui(true, |ui| {
-                    if ui.add_sized(button_size, Button::new("revert")).clicked() {
-                        for entry in selected.iter() {
-                            self.action_tx
-                                .send(Action::Revert(
-                                    entry.package.id.clone(),
-                                    entry.strictly_disabled,
-                                ))
-                                .expect("failed to send message to backend");
-                        }
-
-                        self.busy = true;
+                }
+            } else if selected_app_state == State::Uninstalled as u8 {
+                if add_enabled_button(true, ui, button_size, Button::new("revert")) {
+                    for entry in selected.iter() {
+                        self.action_tx
+                            .send(Action::Revert(entry.package.id.clone(), entry.state))
+                            .expect("failed to send message to backend");
                     }
-                });
+
+                    self.busy = true;
+                }
+            } else {
+                // the selection is a mix of enabled and disabled apps:
+                // gray out the button
+                add_enabled_button(false, ui, button_size, button);
             }
 
             ui.checkbox(&mut self.disable_mode, "disable mode")
@@ -98,4 +89,10 @@ impl crate::App {
         });
         ui.add_space(2.0);
     }
+}
+
+fn add_enabled_button(enabled: bool, ui: &mut egui::Ui, size: Vec2, button: Button) -> bool {
+    ui.add_enabled_ui(enabled, |ui| ui.add_sized(size, button))
+        .inner
+        .clicked()
 }

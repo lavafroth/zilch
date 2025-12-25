@@ -10,10 +10,7 @@ use std::{
 
 use adb_client::{ADBDeviceExt, ADBUSBDevice};
 use eframe::egui;
-use egui::{
-    Align, CentralPanel, Label, Spinner,
-    TextEdit, TopBottomPanel,
-};
+use egui::{Align, CentralPanel, Label, Spinner, TextEdit, TopBottomPanel};
 use egui_alignments::{center_horizontal, column};
 
 use crate::{action::Action, adb_shell_text::ShellCommandText};
@@ -32,8 +29,6 @@ type FrontendPayload = PackageDiff;
 
 struct App {
     search_query: String,
-    uninstallable: bool,
-    reinstallable: bool,
     entries: BTreeMap<String, listview::Entry>,
     categories: u8,
 
@@ -124,8 +119,6 @@ fn main() -> eframe::Result {
                 busy: false,
                 disable_mode: false,
                 have_device: false,
-                uninstallable: false,
-                reinstallable: false,
                 search_query: "".to_owned(),
                 device_lost_rx,
                 package_diff_rx,
@@ -209,11 +202,10 @@ impl App {
             self.entries.insert(
                 package.id.clone(),
                 listview::Entry {
-                    strictly_disabled: false,
                     package,
                     metadata: maybe_meta,
                     expand_triggered: false,
-                    enabled: true,
+                    state: listview::State::Enabled,
                     selected: false,
                 },
             );
@@ -221,21 +213,19 @@ impl App {
 
         for package_id in package_diff.removed {
             if let Some(entry) = self.entries.get_mut(&package_id) {
-                entry.enabled = false;
+                entry.state = listview::State::Uninstalled;
             };
         }
 
         for package_id in package_diff.disabled {
             if let Some(entry) = self.entries.get_mut(&package_id) {
-                entry.enabled = false;
-                entry.strictly_disabled = true;
+                entry.state = listview::State::Disabled;
             };
         }
 
         for package_id in package_diff.re_enabled {
             if let Some(entry) = self.entries.get_mut(&package_id) {
-                entry.enabled = true;
-                entry.strictly_disabled = false;
+                entry.state = listview::State::Enabled;
             };
         }
     }
@@ -291,9 +281,6 @@ impl eframe::App for App {
 
             ui.separator();
             egui::ScrollArea::vertical().show(ui, |ui| {
-                self.uninstallable = false;
-                self.reinstallable = false;
-
                 for (id, entry) in self.entries.iter_mut() {
                     let query_lower = self.search_query.to_lowercase();
                     let entry_removal = entry

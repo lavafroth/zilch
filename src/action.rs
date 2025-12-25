@@ -4,7 +4,7 @@ use adb_client::ADBUSBDevice;
 
 pub enum Action {
     Uninstall(Package),
-    Revert(PackageIdentifier, bool),
+    Revert(PackageIdentifier, crate::listview::State),
     Disable(PackageIdentifier),
 }
 
@@ -28,26 +28,25 @@ impl Action {
                     return Err(ShellRunError::UninstallFailed(pkg.id));
                 }
             }
-            Action::Revert(id, was_disabled) => {
-                if was_disabled {
-                    let revert_command = format!("pm enable {id}");
-                    let output = device.shell_command_text(&revert_command)?;
-                    if !output.contains("new state: enabled") {
-                        return Err(ShellRunError::RevertFailed(id));
-                    }
-                } else {
-                    let revert_command = format!("pm install-existing {id}");
-                    let output = device.shell_command_text(&revert_command)?;
+            Action::Revert(id, crate::listview::State::Disabled) => {
+                let revert_command = format!("pm enable {id}");
+                let output = device.shell_command_text(&revert_command)?;
+                if !output.contains("new state: enabled") {
+                    return Err(ShellRunError::RevertFailed(id));
+                }
+            }
+            Action::Revert(id, _uninstalled) => {
+                let revert_command = format!("pm install-existing {id}");
+                let output = device.shell_command_text(&revert_command)?;
 
-                    if !output.contains("inaccessible or not found") {
-                        return Ok(());
-                    }
+                if !output.contains("inaccessible or not found") {
+                    return Ok(());
+                }
 
-                    let revert_command = format!("pm install -r --user 0 /data/local/tmp/{id}.apk");
-                    let output = device.shell_command_text(&revert_command)?;
-                    if !output.contains("Success") {
-                        return Err(ShellRunError::RevertFailed(id));
-                    }
+                let revert_command = format!("pm install -r --user 0 /data/local/tmp/{id}.apk");
+                let output = device.shell_command_text(&revert_command)?;
+                if !output.contains("Success") {
+                    return Err(ShellRunError::RevertFailed(id));
                 }
             }
             Action::Disable(id) => {

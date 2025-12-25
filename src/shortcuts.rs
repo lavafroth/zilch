@@ -22,17 +22,11 @@ impl crate::App {
             let mut uninstalled = vec![];
             let mut disabled = vec![];
             for (id, entry) in self.entries.iter() {
-                if entry.enabled {
-                    enabled.push(id.clone());
-                    continue;
+                match entry.state {
+                    crate::listview::State::Enabled => enabled.push(id.clone()),
+                    crate::listview::State::Disabled => disabled.push(id.clone()),
+                    crate::listview::State::Uninstalled => uninstalled.push(id.clone()),
                 }
-
-                if entry.strictly_disabled {
-                    disabled.push(id.clone());
-                    continue;
-                }
-
-                uninstalled.push(id.clone());
             }
 
             let contents = format!(
