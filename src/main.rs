@@ -2,6 +2,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    fmt::Display,
     io::BufReader,
     sync::mpsc::{Receiver, Sender, channel},
     thread::{sleep, spawn},
@@ -69,7 +70,6 @@ impl PackageDiff {
     }
 }
 
-#[derive(Debug)]
 pub enum ShellRunError {
     Timeout,
     ParseError,
@@ -77,7 +77,25 @@ pub enum ShellRunError {
     UninstallFailed(PackageIdentifier),
     BackupNotPossible(PackageIdentifier),
     RevertFailed(PackageIdentifier),
-    DisableFailed(String),
+    DisableFailed(PackageIdentifier),
+}
+
+impl Display for ShellRunError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ShellRunError::Timeout => f.write_str("timed out in running shell command on device"),
+            ShellRunError::ParseError => {
+                f.write_str("failed to parse the output of shell command from the device")
+            }
+            ShellRunError::Unrecoverable => f.write_str("unrecoverable error"),
+            ShellRunError::UninstallFailed(id) => write!(f, "failed to uninstall package {id}"),
+            ShellRunError::BackupNotPossible(id) => {
+                write!(f, "failed to backup package {id} before uninstall")
+            }
+            ShellRunError::RevertFailed(id) => write!(f, "failed to revert package {id}"),
+            ShellRunError::DisableFailed(id) => write!(f, "failed to disable package {id}"),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -87,7 +105,9 @@ pub struct Metadata {
 }
 
 fn main() -> eframe::Result {
-    env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Warn)
+        .init();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([800.0, 300.0]),
         ..Default::default()
@@ -240,7 +260,7 @@ impl eframe::App for App {
         }
 
         if let Ok(action_error) = self.action_error_rx.try_recv() {
-            eprintln!("{action_error:?}");
+            log::error!("{}", action_error.to_string());
         }
 
         if let Ok(package_diff) = self.package_diff_rx.try_recv() {
@@ -252,7 +272,7 @@ impl eframe::App for App {
             self.have_device = false;
             self.entries.clear();
 
-            println!("device lost");
+            log::warn!("device lost");
         }
 
         if !self.have_device {
