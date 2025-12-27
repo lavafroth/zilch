@@ -110,8 +110,9 @@ dependencies = [
 
 [[package]]
 name = "adb_client"
-version = "2.1.18"
-source = "git+https://github.com/lavafroth/adb_client?branch=with-read-timeout#f69a3d8a1aa58713e899a8d07ba13588027390e9"
+version = "2.1.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "517ba09db77302f5326492b7f0b9cb99fdf1b4c58f1b749a00f081195cf52949"
 dependencies = [
  "base64",
  "bincode",

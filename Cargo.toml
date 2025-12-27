@@ -7,7 +7,7 @@ edition = "2024"
 strip = true
 
 [dependencies]
-adb_client = {version = "2.1.18", git = "https://github.com/lavafroth/adb_client", branch = "with-read-timeout"}
+adb_client = { version = "2.1.18" }
 # TODO: drop x11 support when wayland adoption increases. Will decrease binary size
 eframe = {version = "0.33.2", features = ["accesskit", "default_fonts", "glow", "wayland", "x11"] }
 egui = "0.33.2"
