@@ -6,6 +6,8 @@ Purge Android bloat with confidence.
 
 ## Features
 
+- Single compiled binary, just download and run
+- No dependency on external ADB tooling
 - Click on app entries to select them
 - Double click to expand
 - Clear multi-selection by pressing `Escape`
