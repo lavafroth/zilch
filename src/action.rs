@@ -9,7 +9,11 @@ pub enum Action {
 }
 
 impl Action {
-    pub fn apply_on_device(self, device: &mut ADBUSBDevice) -> Result<(), ShellRunError> {
+    pub fn apply_on_device(
+        self,
+        device: &mut ADBUSBDevice,
+        device_version: u16,
+    ) -> Result<(), ShellRunError> {
         match self {
             Action::Uninstall(pkg) => {
                 if pkg.path.is_empty() {
@@ -21,22 +25,36 @@ impl Action {
                     pkg.path, pkg.id
                 ))?;
 
-                let output =
-                    device.shell_command_text(&format!("pm uninstall --user 0 -k {}", pkg.id))?;
+                let uninstall_command = if device_version < 20 {
+                    format!("pm block --user 0 {}", pkg.id)
+                } else {
+                    format!("pm uninstall --user 0 -k {}", pkg.id)
+                };
+
+                let output = device.shell_command_text(&uninstall_command)?;
 
                 if !output.contains("Success") {
                     return Err(ShellRunError::UninstallFailed(pkg.id));
                 }
             }
             Action::Revert(id, crate::listview::State::Disabled) => {
-                let revert_command = format!("pm enable {id}");
+                let revert_command = if device_version < 20 {
+                    format!("pm unblock --user 0 {}", id)
+                } else {
+                    format!("pm enable {}", id)
+                };
+
                 let output = device.shell_command_text(&revert_command)?;
                 if !output.contains("new state: enabled") {
                     return Err(ShellRunError::RevertFailed(id));
                 }
             }
             Action::Revert(id, _uninstalled) => {
-                let revert_command = format!("pm install-existing {id}");
+                let revert_command = if device_version < 20 {
+                    format!("pm unblock --user 0 {}", id)
+                } else {
+                    format!("pm install-existing {id}")
+                };
                 let output = device.shell_command_text(&revert_command)?;
 
                 if !output.contains("inaccessible or not found") {
@@ -50,7 +68,11 @@ impl Action {
                 }
             }
             Action::Disable(id) => {
-                let disable_command = format!("pm disable-user {id}");
+                let disable_command = if device_version < 20 {
+                    format!("pm block --user 0 {}", id)
+                } else {
+                    format!("pm disable-user {id}")
+                };
                 let output = device.shell_command_text(&disable_command)?;
                 if !output.contains("new state: disabled-user") {
                     return Err(ShellRunError::DisableFailed(id));

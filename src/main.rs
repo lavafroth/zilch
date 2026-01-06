@@ -199,7 +199,7 @@ fn worker_thread(
         while let Some(device) = maybe_device.as_mut() {
             // do all the actions in bulk before the next render
             while let Ok(action) = action_rx.try_recv() {
-                if let Err(action_error) = action.apply_on_device(device) {
+                if let Err(action_error) = action.apply_on_device(device, device_version) {
                     action_error_tx
                         .send(action_error)
                         .expect("failed to send to ui");
