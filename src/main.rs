@@ -163,6 +163,7 @@ fn worker_thread(
     let mut maybe_device: Option<ADBUSBDevice> = None;
     let mut pkg_set: BTreeSet<PackageIdentifier> = Default::default();
     let mut disabled_set: BTreeSet<PackageIdentifier> = Default::default();
+    let mut device_version = 0;
 
     loop {
         while maybe_device.is_none() {
@@ -173,6 +174,21 @@ fn worker_thread(
         }
 
         if let Some(device) = maybe_device.as_mut() {
+            let Ok(sdk_version_str) = device.shell_command_text("getprop ro.build.version.sdk")
+            else {
+                log::error!("failed to get android version from the device");
+                maybe_device = None;
+                continue;
+            };
+
+            let Ok(sdk_version) = sdk_version_str.trim().parse::<u16>() else {
+                log::error!("failed to parse device android sdk version");
+                maybe_device = None;
+                continue;
+            };
+
+            device_version = sdk_version;
+
             let mut label_extractor_dex_stream = BufReader::new(&LABEL_EXTRACTOR[..]);
             let remote_path = "/data/local/tmp/extractor.dex";
             device
