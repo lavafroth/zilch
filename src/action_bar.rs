@@ -32,18 +32,18 @@ impl crate::App {
             Button::new("uninstall")
         };
 
-        let mut selected: Vec<&listview::Entry> = vec![];
-        let mut selected_app_state = 0b111;
-        for entry in self.entries.values().filter(|entry| entry.selected) {
-            selected.push(entry);
-            selected_app_state &= entry.state as u8;
-        }
-
         // eprintln!("{0:08b}", self.selected_app_state);
 
         ui.separator();
 
         ui.horizontal(|ui| {
+            let mut selected: Vec<&listview::Entry> = vec![];
+            let mut selected_app_state = 0b111;
+            for entry in self.entries.values().filter(|entry| entry.selected) {
+                selected.push(entry);
+                selected_app_state &= entry.state as u8;
+            }
+
             let button_size = [80.0, 30.0].into();
             if self.busy {
                 ui.add_sized(button_size, Spinner::new());
@@ -86,6 +86,10 @@ impl crate::App {
             ui.separator();
             ui.label(format!("{} selected", selected.len()));
             ui.separator();
+
+            if ui.button("Save").clicked() {
+                self.save_config();
+            }
         });
         ui.add_space(2.0);
     }

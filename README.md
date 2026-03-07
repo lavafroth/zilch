@@ -9,23 +9,23 @@ Purge Android bloat with confidence.
 - Single compiled binary, just download and run
 - No dependency on external ADB tooling
 - Click on app entries to select them
-- Double click to expand
+- Double-click to expand
 - Clear multi-selection by pressing `Escape`
 - Extracts app labels via package manager API
 - Architecture independent, works with any Android device over USB
 - Accidentally removed apps can be restored via the revert button
 - Recommendation categories (borrowed from UAD)
 - Press `S` or `/` or `Ctrl` `F` to search apps
-- Save the current state of packages on the phone with `Ctrl` `S`
+- Save the current state of packages
 - Uninstall and disable operations are agnostic to Android version
 
 ## Installation
 
-### From binary releases
+### From Binary Releases
 
 Precompiled binaries are available under the releases tab.
 
-### Build from source
+### Build from Source
 
 ```sh
 nix develop
