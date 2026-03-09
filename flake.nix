@@ -1,5 +1,5 @@
 {
-  description = "flake for github:lavafroth/shush";
+  description = "devshell flake for github:lavafroth/zilch";
 
   outputs =
     {
@@ -18,13 +18,19 @@
         default = pkgs.mkShell {
           buildInputs = with pkgs; [
             stdenv.cc.cc.lib
+            rust-analyzer
+            cargo
+            rustc
           ];
-          LD_LIBRARY_PATH = with pkgs; lib.makeLibraryPath [
-            wayland-protocols
-            wayland
-            libxkbcommon
-            libGL
-          ];
+          LD_LIBRARY_PATH =
+            with pkgs;
+            lib.makeLibraryPath [
+              wayland-protocols
+              wayland
+              libxkbcommon
+              libGL
+              dbus
+            ];
         };
 
       });
