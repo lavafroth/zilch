@@ -276,7 +276,7 @@ impl eframe::App for App {
         }
 
         if let Ok(action_error) = self.action_error_rx.try_recv() {
-            log::error!("{}", action_error.to_string());
+            log::error!("{}", action_error);
         }
 
         if let Ok(package_diff) = self.package_diff_rx.try_recv() {
