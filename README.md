@@ -31,3 +31,7 @@ Precompiled binaries are available under the releases tab.
 nix develop
 cargo run
 ```
+
+## References
+
+- [Gist: Backup android app, data included, no root needed, with ADB](https://gist.github.com/AnatomicJC/e773dd55ae60ab0b2d6dd2351eb977c1)
