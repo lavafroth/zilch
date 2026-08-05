@@ -27,9 +27,9 @@ impl crate::App {
         });
 
         let button = if self.disable_mode {
-            Button::new("disable")
+            Button::new("Disable")
         } else {
-            Button::new("uninstall")
+            Button::new("Uninstall")
         };
 
         // eprintln!("{0:08b}", self.selected_app_state);
@@ -65,7 +65,7 @@ impl crate::App {
                     self.busy = true;
                 }
             } else if selected_app_state == State::Uninstalled as u8 {
-                if add_enabled_button(true, ui, button_size, Button::new("revert")) {
+                if add_enabled_button(true, ui, button_size, Button::new("Revert")) {
                     for entry in selected.iter() {
                         self.action_tx
                             .send(Action::Revert(entry.package.id.clone(), entry.state))
