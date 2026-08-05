@@ -17,6 +17,7 @@ Purge Android bloat with confidence.
 - Recommendation categories (borrowed from UAD)
 - Press `S` or `/` or `Ctrl` `F` to search apps
 - Save the current state of packages
+- Import package configuration from saves
 - Uninstall and disable operations are agnostic to Android version
 
 ## Installation
