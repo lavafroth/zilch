@@ -87,8 +87,11 @@ impl crate::App {
             ui.label(format!("{} selected", selected.len()));
             ui.separator();
 
-            if ui.button("Save").clicked() {
+            if add_enabled_button(!self.busy, ui, button_size, Button::new("Export")) {
                 self.save_config();
+            }
+            if add_enabled_button(!self.busy, ui, button_size, Button::new("Import")) {
+                self.import_config();
             }
         });
         ui.add_space(2.0);
