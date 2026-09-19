@@ -11,7 +11,7 @@ use std::{
 
 use adb_client::{ADBDeviceExt, ADBUSBDevice};
 use eframe::egui;
-use egui::{Align, CentralPanel, Label, Spinner, TextEdit, TopBottomPanel};
+use egui::{Align, CentralPanel, Label, Spinner, TextEdit};
 use egui_alignments::{center_horizontal, column};
 
 use crate::{action::Action, adb_shell_text::ShellCommandText};
@@ -124,6 +124,7 @@ fn main() -> eframe::Result {
             let (action_result_tx, action_result_rx) = channel();
 
             let ctx = cc.egui_ctx.clone();
+            ctx.set_pixels_per_point(1.5);
             spawn(move || {
                 worker_thread(
                     package_diff_tx,
@@ -268,8 +269,7 @@ impl App {
 }
 
 impl eframe::App for App {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        ctx.set_pixels_per_point(1.5);
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
 
         if let Ok(()) = self.action_done_rx.try_recv() {
             self.busy = false;
@@ -292,7 +292,7 @@ impl eframe::App for App {
         }
 
         if !self.have_device {
-            egui::CentralPanel::default().show(ctx, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 center_horizontal(ui, |ui| {
                     column(ui, Align::Center, |ui| {
                     ui.add(Spinner::new());
@@ -303,9 +303,9 @@ impl eframe::App for App {
             return;
         };
 
-        TopBottomPanel::bottom("action_bar").show(ctx, |ui| self.action_bar(ui));
+        egui::Panel::bottom("action_bar").show(ui, |ui| self.action_bar(ui));
 
-        CentralPanel::default().show(ctx, |ui| {
+        CentralPanel::default().show(ui, |ui| {
             ui.take_available_width();
             let search = ui.horizontal(|ui| {
                 ui.take_available_width();
